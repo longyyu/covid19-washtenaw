@@ -1,0 +1,58 @@
+---
+title: "Title to be determined"
+subtitle: "STATS 531 Final Project (W21)"
+author: "Yanyu Long"
+date: "Apr 11, 2021"
+output: 
+  html_document:
+    toc: true
+    toc_depth: 2
+    theme: flatly
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(
+  echo = TRUE, #! TODO: switch to FALSE later
+  warning = FALSE,
+	message = FALSE,
+	include = TRUE,
+  comment = '',
+  fig.align = "center"
+)
+# rm(list = ls()); rmarkdown::render("main.Rmd")
+```
+
+```{css, include = TRUE, echo = FALSE}
+pre { /* Scrollable code block */
+  max-height: 230px;
+  overflow-y: auto;
+}
+span.math{ /* Formulas */
+  font-size: 14px;
+}
+.comment { /* Comments, to be deleted later */
+  margin: 30px;
+  padding-left: 10px;
+  color: Darkred;
+  border-left-style: solid;
+  /*border-color: #f2f2f2;*/
+  font-weight: 600;
+}
+table{
+  margin-left: auto; /* center the tables */
+  margin-right: auto; /* center the tables */
+  margin-bottom: 10px; /* add vertical space after table */
+}
+tr td {
+  min-width: 70px;
+  height: 35px;
+}
+tr:nth-child(odd) td {
+  background-color: #f9f9f9; /* create the striped effect */
+}
+```
+
+
+```{r child = 'eda_benchmark.Rmd'}
+```
+

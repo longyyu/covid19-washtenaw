@@ -1,0 +1,104 @@
+---
+
+## Data
+
+---
+
+## Exploratory Data Analysis
+
+[There are two types of cases: `Confirmed` and `Probable`. It probably makes more sense to focus on confirmed cases only.]{.comment}
+
+* Confirmed cases only include individuals who have had a positive diagnostic laboratory test for COVID-19. 
+* Probable cases include individuals who have symptoms consistent with COVID-19 and an epidemiologic link to a confirmed case or a positive serology (antibody) test, but do not have a positive diagnostic laboratory test for COVID-19 and individuals with a positive serology (antibody) test for COVID-19 and an epidemiologic link to a confirmed case.
+
+```{r}
+library(tidyverse)
+cases = read.csv("cases_deaths_by_county_date.csv",
+                 colClasses = list(Date = "Date")) %>%
+  filter(!is.na(Date), CASE_STATUS == "Confirmed") %>%
+  select(-Updated, -CASE_STATUS, -ends_with("Cumulative"))
+```
+
+```{r, fig.height = 4.5, fig.width = 8}
+cases %>% 
+  mutate(Cases_Washtenaw = ifelse(COUNTY == "Washtenaw", Cases, 0)) %>% 
+  group_by(Date) %>%
+  summarise(Cases_Michigan = sum(Cases), Cases_Washtenaw = sum(Cases_Washtenaw),
+            .groups = "drop") %>%
+  pivot_longer(-Date, names_to = "County", names_pattern = "Cases_(.*)", values_to = "Cases") %>%
+  ggplot() +
+    facet_wrap(~County, nrow = 2, scales = "free_y") +
+    theme_bw() +
+    geom_line(aes(Date, Cases, color = County), size = .6) +
+    scale_color_manual(
+      name = "Cases by Date", values = c("#69b3a2", "#a55b6c")
+    ) +
+    scale_x_date(date_labels = "%m-%Y") +
+    guides(color = FALSE)
+```
+
+
+[Do we want to pick a subperiod to analyze, or do we want to use the full sample (Mar 1, 2020 - Apr 7, 2021)?]{.comment}
+
+---
+
+## Likelihood Benchmark
+
+### Negative Binomial
+
+```{r}
+cases = cases %>% filter(COUNTY == "Washtenaw") %>% select(-COUNTY)
+nb_lik = function(theta) {- sum(dnbinom(
+  cases$Cases, size = exp(theta[1]), prob = exp(theta[2]), log = TRUE
+))}
+nb_mle = optim(c(0, -5), nb_lik)
+-nb_mle$value # loglik = -1978.809
+```
+
+### ARMA
+
+```{r, echo = FALSE}
+generate_aic_table=function(data, P, Q, D=0, ...){
+	table=matrix(NA, (P+1), (Q+1))
+	for(p in 0:P) {
+		for(q in 0:Q) {
+		  model_aic = try(
+		    arima(data, order = c(p, D, q), method="ML", ...)$aic, 
+		    silent = TRUE
+		  )
+		  table[p + 1,q + 1] = ifelse(
+		    inherits(model_aic, "try-error"), NA, model_aic
+		  )
+		}
+	}
+	dimnames(table) = list(paste("AR", 0:P, sep=""), paste("MA", 0:Q, sep=""))
+  table
+}
+```
+
+```{r, fig.width = 7, fig.height = 3.5}
+log_cases = log(1 + cases$Cases)
+smoothed = spectrum(log_cases, spans=c(5, 5, 5), main="Periodogram (Smoothed)")
+idx_max = which.max(smoothed$spec) # 1
+idx_max2 = which.max(smoothed$spec[41:length(smoothed$spec)]) + 40 # 58
+abline(v=smoothed$freq[idx_max], lty=2, col='red') # freq = 0.002469, 405 days
+abline(v=smoothed$freq[idx_max2], lty=2, col='red') # freq = 0.1432099, 1 week
+```
+
+```{r, eval = FALSE}
+table_s00 = generate_aic_table(data = log_cases, P = 5, Q = 5) # 328.4826
+table_s10 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 307.807
+                               seasonal = list(order = c(1, 0, 0), period = 7))
+table_s01 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 322.3412
+                               seasonal = list(order = c(0, 0, 1), period = 7))
+table_s11 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 287.052
+                               seasonal = list(order = c(1, 0, 1), period = 7))
+# AR3, MA4: AIC=287.0520
+# AR1, MA1: AIC=288.1600
+```
+
+```{r}
+arma11_s11 = arima(log_cases, order = c(1, 0, 1), method="ML",
+                   seasonal = list(order = c(1, 0, 1), period = 7))
+arma11_s11$loglik - sum(log_cases) # -1540.12
+```

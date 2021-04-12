@@ -1,6 +1,6 @@
----
-
 ## Data
+
+The data consist of confirmed COVID-19 cases by county and by date in the State of Michigan from March 2020 to April 2021, and were collected by the Michigan Disease Surveillance System (MDSS)[[1]](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html). 
 
 ---
 
@@ -34,20 +34,28 @@ cases %>%
       name = "Cases by Date", values = c("#69b3a2", "#a55b6c")
     ) +
     scale_x_date(date_labels = "%m-%Y") +
-    guides(color = FALSE)
+    guides(color = FALSE) +
+    geom_vline(aes(xintercept = as.Date("2021-04-01")), 
+               linetype = "dashed", color="red")
 ```
 
 
-[Do we want to pick a subperiod to analyze, or do we want to use the full sample (Mar 1, 2020 - Apr 7, 2021)?]{.comment}
+[We can focus on the Washtenaw County, or compare the parameter estimates of the Washtenaw County and the other counties. ]{.comment}
+
+
+[Do we want to pick a subperiod to analyze, or do we want to use the full sample? It seems like we can at least leave out the observations in Apr 2021 (points to the right of the red dashed line), as the records might be incomplete. ]{.comment}
 
 ---
 
 ## Likelihood Benchmark
 
+**Note:** The following analysis is based on the confirmed cases in the Washtenaw County.
+
 ### Negative Binomial
 
 ```{r}
 cases = cases %>% filter(COUNTY == "Washtenaw") %>% select(-COUNTY)
+
 nb_lik = function(theta) {- sum(dnbinom(
   cases$Cases, size = exp(theta[1]), prob = exp(theta[2]), log = TRUE
 ))}
@@ -76,16 +84,20 @@ generate_aic_table=function(data, P, Q, D=0, ...){
 }
 ```
 
+The periodogram shows two dominant frequencies. The first one, $\omega_1 = 0.00247$, corresponds to a period of 405 days. The second one is $\omega_2 = 0.14321$, which corresponds to a 7-day period. Next, I will use the period of 7 days to fit a SARMA model. 
+
 ```{r, fig.width = 7, fig.height = 3.5}
 log_cases = log(1 + cases$Cases)
 smoothed = spectrum(log_cases, spans=c(5, 5, 5), main="Periodogram (Smoothed)")
-idx_max = which.max(smoothed$spec) # 1
-idx_max2 = which.max(smoothed$spec[41:length(smoothed$spec)]) + 40 # 58
+idx_max = which.max(smoothed$spec)
+idx_max2 = which.max(smoothed$spec[41:length(smoothed$spec)]) + 40
 abline(v=smoothed$freq[idx_max], lty=2, col='red') # freq = 0.002469, 405 days
 abline(v=smoothed$freq[idx_max2], lty=2, col='red') # freq = 0.1432099, 1 week
 ```
 
-```{r, eval = FALSE}
+A simple search over the parameters shows that the best fit is given by a $SARMA(3,4)\times(1,1)_7$ model with an AIC of 287.05, followed by a $SARMA(1,1)\times(1,1)_7$ model with an AIC of 288.16. We will use the simpler model for the likelihood benchmark analysis.
+
+```{r, eval = FALSE, echo = FALSE}
 table_s00 = generate_aic_table(data = log_cases, P = 5, Q = 5) # 328.4826
 table_s10 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 307.807
                                seasonal = list(order = c(1, 0, 0), period = 7))
@@ -93,8 +105,6 @@ table_s01 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 322.3412
                                seasonal = list(order = c(0, 0, 1), period = 7))
 table_s11 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 287.052
                                seasonal = list(order = c(1, 0, 1), period = 7))
-# AR3, MA4: AIC=287.0520
-# AR1, MA1: AIC=288.1600
 ```
 
 ```{r}

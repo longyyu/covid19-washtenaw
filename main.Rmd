@@ -1,8 +1,8 @@
 ---
-title: "Title to be determined"
+title: "EDA and Likelihood Benchmark"
 subtitle: "STATS 531 Final Project (W21)"
 author: "Yanyu Long"
-date: "Apr 11, 2021"
+date: "Apr 12, 2021"
 output: 
   html_document:
     toc: true
@@ -52,7 +52,13 @@ tr:nth-child(odd) td {
 }
 ```
 
+---
 
 ```{r child = 'eda_benchmark.Rmd'}
 ```
 
+---
+
+## References
+
+[1] [Michigan Disease Surveillance System (MDSS)](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html), "Cases and Deaths by County by Date of Onset of Symptoms and Date of Death". Accessed April 7, 2021.

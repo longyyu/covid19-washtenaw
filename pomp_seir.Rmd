@@ -1,0 +1,258 @@
+```{r, echo = FALSE}
+NCORES = 1L
+CACHE_DIR = "pomp_cache/"
+run_level = 2
+NP = switch(run_level, 50, 1e3, 3e3) # number of particles
+NMIF_S = switch(run_level, 5, 50, 100) # number of filtering iterations - small
+NMIF_L = switch(run_level, 10, 100, 200) # - large
+NREPS_EVAL = switch(run_level, 5, 20, 40) # number of replications in likelihood evaluation
+NREPS_LOCAL = switch(run_level, 10, 20, 30) # number of replications in local search
+NSTART = switch(run_level, 50, 500, 800) # number of starting points in the global search
+NSIM = switch(run_level, 50, 100, 500) # number of simulations
+
+PARAMS_FILE = sprintf("seir_params_runlevel=%i.csv", run_level)
+
+
+suppressPackageStartupMessages({
+  library(foreach)
+  library(doParallel)
+  library(doRNG)
+  library(tidyverse)
+  library(pomp)
+})
+cl = makeCluster(NCORES)
+registerDoParallel(cl)
+registerDoRNG(625904618)
+```
+
+## SEIR Model
+
+### Model specification
+
+Our observation are daily reported cases from Mar 1, 2020 to Apr 7, 2021. So we set $t_n = 2020 + (60 + n)/366, n \in \{0, 1, 2, \ldots \}$. 
+
+```{r}
+cases = read.csv("cases_deaths_by_county_date.csv",
+                 colClasses = list(Date = "Date")) %>%
+  filter(!is.na(Date), CASE_STATUS == "Confirmed", COUNTY == "Washtenaw") %>%
+  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative"))
+cases = cases %>%
+  # transform Date to numeric form
+  mutate(Time = 2020 + as.numeric(Date - as.Date("2020-01-01"))/366)
+t0 = min(cases$Time) # 2020.164, i.e. 2020-03-01
+```
+
+```{r}
+seir_step = Csnippet("
+  double dN_SE = rbinom(S, 1 - exp(-Beta * I / N * dt));
+  double dN_EI = rbinom(E, 1 - exp(-mu_EI * dt));
+  double dN_IR = rbinom(I, 1 - exp(-mu_IR * dt));
+  S -= dN_SE;
+  E += dN_SE - dN_EI;
+  I += dN_EI - dN_IR;
+  H += dN_IR;
+")
+
+seir_rinit = Csnippet("
+  S = nearbyint(eta * N);
+  E = 1;
+  I = 0;
+  H = 0;
+")
+
+dmeas <- Csnippet("
+  lik = dbinom(Cases, H, rho, give_log);
+")
+
+rmeas <- Csnippet("
+  Cases = rbinom(H, rho);
+")
+
+measSEIR = cases %>% select(Time, Cases) %>%
+  pomp(
+    times = "Time", t0 = t0,
+    rprocess = euler(seir_step, delta.t = 1),
+    rinit = seir_rinit,
+    rmeasure = rmeas,
+    dmeasure = dmeas,
+    accumvars = "H",
+    partrans=parameter_trans(
+      log = c("Beta", "mu_EI", "mu_IR"),
+      logit = c("rho","eta")
+    ),
+    statenames=c("S", "E", "I", "H"),
+    paramnames=c("Beta", "mu_EI", "mu_IR", "eta", "rho", "N")
+  )
+```
+
+### Search for starting points  
+
+As of the [2019 census](https://fred.stlouisfed.org/series/MIWASH1POP), the resident population in Washtenaw County was 367,601. We will use this value as an approximation for the population in March 2020. In the following analysis, we will fix the population $N$ to 367,601.  
+
+To help determine the starting points of other parameters, we ran a simplified global search with population $N$ fixed and all the other parameters variable. Below are the ranges of working starting points (i.e., parameters that do not lead to infinite likelihoods) we found. 
+
+```{r, echo = FALSE}
+params_start = read.csv("params_starting_points_deltat=1.csv") %>% filter(!is.na(loglik.se))
+params_start %>% arrange(-loglik) %>% head() %>% knitr::kable()
+# params_start %>% 
+#   select(all_of(c("Beta", "rho", "eta", "mu_EI", "mu_IR"))) %>%
+#   summary() %>% knitr::kable()
+```
+
+Based on the above information, we set the starting points of the search to: 
+
+$$\beta = 100,000, \mu_{EI} = 3, \mu_{IR} = 1, \rho = 0.12, \eta = 0.8$$
+
+```{r}
+pop_washtenaw = 367601
+params = c(Beta = 1e05, mu_EI = 3, mu_IR = 1, rho = 0.12, eta = 0.8, N = pop_washtenaw)
+fixed_params = params[c("N")]
+params_rw.sd = rw.sd(Beta = 0.02, mu_EI = 0.02, mu_IR = 0.02,
+                     rho = 0.02, eta = ivp(0.04)) 
+pairs_formula = ~loglik + Beta + mu_EI + mu_IR + eta + rho
+```
+
+### Local Search
+
+```{r, fig.height = 5, fig.width = 8}
+run_id = 1
+registerDoRNG(482947940)
+bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "local_search.rds"),{
+  foreach(i = 1:NREPS_LOCAL, .combine = c) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    measSEIR %>%
+      mif2(
+        params = params,
+        Np = NP, Nmif = NMIF_S,
+        cooling.fraction.50 = 0.5,
+        rw.sd = rw.sd(Beta = 0.02, rho = 0.02, eta = ivp(0.02))
+      )
+  } -> mifs_local
+  attr(mifs_local,"ncpu") <- getDoParWorkers()
+  mifs_local
+}) -> mifs_local
+t_loc <- attr(mifs_local,"system.time")
+ncpu_loc <- attr(mifs_local,"ncpu")
+cat(sprintf("Local search (IF2) finished in %4.3f seconds\n", t_loc["elapsed"]))
+
+mifs_local %>%
+  traces() %>%
+  melt() %>%
+  filter(!variable %in% names(fixed_params)) %>%
+  ggplot(aes(x = iteration, y = value, group = L1, color = factor(L1))) +
+  theme_bw() +
+  geom_line() +
+  guides(color = FALSE) +
+  facet_wrap(~variable, scales = "free_y")
+```
+
+```{r}
+# likelihood est. for local search results
+registerDoRNG(900242057)
+bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "lik_local.rds"),{
+  foreach(mf = mifs_local, .combine = rbind) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    ll = replicate(NREPS_EVAL, logLik(pfilter(mf, Np = NP))) %>% logmeanexp(se = TRUE)
+    coef(mf) %>% bind_rows() %>% bind_cols(loglik = ll[1], loglik.se = ll[2])
+  } -> results
+  attr(results,"ncpu") <- getDoParWorkers()
+  results
+}) -> results
+t_local <- attr(results,"system.time")
+ncpu_local <- attr(results,"ncpu")
+cat(sprintf("Local search (likelihood est.) finished in %4.3f seconds\n", t_local["elapsed"]))
+
+```
+
+```{r, fig.height = 7, fig.width = 7}
+pairs(pairs_formula, data = results, pch = 16)
+```
+
+### Global Search
+
+```{r}
+run_id = 2
+
+# create a box of starting values (for parameters)
+set.seed(2062379496)
+guesses = runif_design(
+  lower = c(Beta = 1e04, mu_EI = 0, mu_IR = 0 , rho = 0.05, eta = 0),
+  upper=c(Beta = 1e06, mu_EI = 10, mu_IR = 10, rho = 0.3, eta = 1),
+  nseq = NSTART
+)
+
+mf1 <- mifs_local[[1]] # take the output of previous IF process (local search)
+
+bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "global_search.rds"),{
+  registerDoRNG(1270401374)
+  foreach(guess=iter(guesses, "row"), .combine = rbind) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    mf = mf1 %>% # cooling.fraction.50 = 0.5
+      mif2(params = c(unlist(guess), fixed_params), Nmif = NMIF_L) %>%
+      mif2(Nmif = NMIF_L) %>%
+      mif2(Nmif = NMIF_L)
+    mf = mf %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.3) %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.3) %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.1) %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.1)
+    ll = replicate(NREPS_EVAL, mf %>% pfilter(Np = NP) %>% logLik()) %>%
+      logmeanexp(se = TRUE)
+    coef(mf) %>% bind_rows() %>%
+      bind_cols(loglik = ll[1],loglik.se = ll[2])
+  } -> results
+  attr(results,"ncpu") <- getDoParWorkers()
+  results
+}) %>%
+  filter(is.finite(loglik)) -> results
+t_global <- attr(results,"system.time")
+ncpu_global <- attr(results,"ncpu")
+cat(sprintf("Global search finished in %4.3f seconds\n", t_global["elapsed"]))
+```
+
+```{r, fig.height = 7, fig.width = 7}
+all = read_csv(PARAMS_FILE) %>%
+  filter(id <= 2) %>%
+  # filter(loglik > max(loglik) - 50) %>%
+  bind_rows(guesses) %>%
+  mutate(type = if_else(is.na(loglik), "guess", "result")) %>%
+  arrange(type)
+
+pairs(pairs_formula, data = all,
+      col = ifelse(all$type == "guess", grey(0.5), "red"), pch = 16)
+```
+
+### Simulation results  
+
+```{r, fig.height = 3, fig.width = 6}
+optimal_params = read.csv(PARAMS_FILE) %>% slice(1) %>%
+  select(-starts_with("loglik"), -id) %>% unlist()
+measSEIR %>%
+  simulate(
+    params = optimal_params, nsim = 20, format = "data.frame", include.data = TRUE
+  ) %>%
+  ggplot() +
+    theme_bw() +
+    geom_line(aes(Time, Cases, group = .id, 
+                  color = (.id == "data"), alpha = (.id == "data"), 
+                  linetype = (.id == "data"))) +
+    scale_color_manual(values = c("#18bc9c", "#c61919")) +
+    scale_alpha_manual(values = c(0.75, 1)) +
+    scale_linetype_manual(values = c(5, 1)) +
+    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
+```
+
+```{r, echo = FALSE}
+stopCluster(cl) # shut the cluster down
+```
+
+[The current model setting does not fit the data well. It might help improve the model performance to (1) subsample the data to focus on the outbreak (August 2020 - March 2021), (2) aggregate the daily data to weekly level, or (3) change the model settings - consider a time-varying contact rate, or use a different compartmental model. ]{.comment}

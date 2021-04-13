@@ -1,8 +1,8 @@
 ---
-title: "EDA and Likelihood Benchmark"
+title: "Exploratory Data Analysis"
 subtitle: "STATS 531 Final Project (W21)"
 author: "Yanyu Long"
-date: "Apr 12, 2021"
+date: "Apr 13, 2021"
 output: 
   html_document:
     toc: true
@@ -55,6 +55,11 @@ tr:nth-child(odd) td {
 ---
 
 ```{r child = 'eda_benchmark.Rmd'}
+```
+
+---
+
+```{r child = 'pomp_seir.Rmd'}
 ```
 
 ---

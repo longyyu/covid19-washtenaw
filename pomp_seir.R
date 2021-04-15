@@ -33,7 +33,8 @@ registerDoRNG(625904618)
 cases = read.csv("cases_deaths_by_county_date.csv",
                  colClasses = list(Date = "Date")) %>%
   filter(!is.na(Date), CASE_STATUS == "Confirmed", COUNTY == "Washtenaw") %>%
-  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative"))
+  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative")) %>% 
+  filter(Date >= as.Date("2020-06-01"), Date < as.Date("2021-03-01"))
 
 cases = cases %>%
   # transform Date to numeric form
@@ -85,11 +86,11 @@ measSEIR = cases %>% select(Time, Cases) %>%
 
 
 # -------------------------------------------
-pop_washtenaw = 367601
-params = c(Beta = 1e05, mu_EI = 1, mu_IR = 1, rho = 0.12, eta = 0.8, N = pop_washtenaw)
+pop_washtenaw = 367000
+params = c(Beta = 80, mu_EI = 80, mu_IR = 26, rho = 0.5, eta = 0.5, N = pop_washtenaw)
 fixed_params = params[c("N")]
 params_rw.sd = rw.sd(Beta = 0.02, mu_EI = 0.02, mu_IR = 0.02,
-                     rho = 0.02, eta = ivp(0.04)) 
+                     rho = 0.02, eta = ivp(0.02)) 
 pairs_formula = ~loglik + Beta + mu_EI + mu_IR + eta + rho
 
 
@@ -190,8 +191,8 @@ run_id = 2
 # create a box of starting values (for parameters)
 set.seed(2062379496)
 guesses = runif_design(
-  lower = c(Beta = 1e04, mu_EI = 0, mu_IR = 0 , rho = 0.05, eta = 0.5),
-  upper=c(Beta = 1e06, mu_EI = 10, mu_IR = 10, rho = 0.3, eta = 1),
+  lower = c(Beta = 10, mu_EI = 10, mu_IR = 5 , rho = 0.05, eta = 0.5),
+  upper=c(Beta = 100, mu_EI = 200, mu_IR = 40, rho = 0.3, eta = 1),
   nseq = NSTART
 )
 
@@ -229,7 +230,7 @@ cat(sprintf("Global search finished in %4.3f seconds\n", t_global["elapsed"]))
 
 read.csv(PARAMS_FILE) %>%
   bind_rows(results %>% mutate(id = run_id)) %>%
-  filter(is.finite(loglik)) %>%
+  # filter(is.finite(loglik)) %>%
   arrange(-loglik) %>%
   write_csv(PARAMS_FILE)
 

@@ -113,4 +113,5 @@ logliks = sapply(c("data", as.list(1:10)), function(group) {
   sapply(pf, logLik) %>% logmeanexp(se = TRUE)
 })
 
-logliks
+logliks # the first element is the log likelihood estimate for the original data
+        # the others are estimates for the simulated data

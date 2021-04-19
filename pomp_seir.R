@@ -5,7 +5,7 @@ NCORES = 25L
 CACHE_DIR = "pomp_cache/"
 DO_PLOT = FALSE
 
-run_level = 2
+run_level = 1
 NP = switch(run_level, 50, 1e3, 3e3) # number of particles
 NMIF_S = switch(run_level, 5, 50, 100) # number of filtering iterations - small
 NMIF_L = switch(run_level, 10, 75, 150) # - large
@@ -62,13 +62,15 @@ seir_rinit = Csnippet("
 
 dmeas = Csnippet("
   lik = dbinom(Cases, H, rho, give_log);
+  // lik = dpois(Cases, H * rho, give_log);
 ")
 
 rmeas = Csnippet("
   Cases = rbinom(H, rho);
+  // Cases = rpois(H *rho);
 ")
 
-measSEIR = cases %>% select(Time, Cases) %>%
+covidSEIR = cases %>% select(Time, Cases) %>%
   pomp(
     times = "Time", t0 = t0,
     rprocess = euler(seir_step, delta.t = 1),
@@ -87,7 +89,7 @@ measSEIR = cases %>% select(Time, Cases) %>%
 
 # -------------------------------------------
 pop_washtenaw = 367000
-params = c(Beta = 80, mu_EI = 80, mu_IR = 26, rho = 0.5, eta = 0.5, N = pop_washtenaw)
+params = c(Beta = 70, mu_EI = 80, mu_IR = 14, rho = 0.12, eta = 0.5, N = pop_washtenaw)
 fixed_params = params[c("N")]
 params_rw.sd = rw.sd(Beta = 0.02, mu_EI = 0.02, mu_IR = 0.02,
                      rho = 0.02, eta = ivp(0.02)) 
@@ -96,10 +98,10 @@ pairs_formula = ~loglik + Beta + mu_EI + mu_IR + eta + rho
 
 ## ---- echo = FALSE, eval = FALSE------------
 ## # run a simulation to check that rprocess and rmeasure work
-# y = measSEIR %>% simulate(params = params, nsim = 10, format = "data.frame")
+# y = covidSEIR %>% simulate(params = params, nsim = 10, format = "data.frame")
 ## 
 ## # run a pfilter and check that (rprocess and) dmeasure worksi
-# pf = measSEIR %>% pfilter(Np = 1000, params = params)
+# pf = covidSEIR %>% pfilter(Np = 1000, params = params)
 
 
 # -------------------------------------------
@@ -111,11 +113,11 @@ system.time({
       library(pomp)
       library(tidyverse)
     })
-    measSEIR %>% pfilter(params = params, Np = NP)
+    covidSEIR %>% pfilter(params = params, Np = NP)
   } -> pf
 })
 
-L_pf = pf %>% logLik() %>% logmeanexp(se=TRUE)
+L_pf = pf %>% logLik() %>% logmeanexp(se = TRUE)
 print(L_pf)
 
 coef(pf[[1]]) %>% bind_rows() %>%
@@ -131,7 +133,7 @@ bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "local_search.rds"
       library(tidyverse)
       library(pomp)
     })
-    measSEIR %>%
+    covidSEIR %>%
       mif2(
         params = params,
         Np = NP, Nmif = NMIF_S,
@@ -192,7 +194,7 @@ run_id = 2
 set.seed(2062379496)
 guesses = runif_design(
   lower = c(Beta = 10, mu_EI = 10, mu_IR = 5 , rho = 0.05, eta = 0.5),
-  upper=c(Beta = 100, mu_EI = 200, mu_IR = 40, rho = 0.3, eta = 1),
+  upper = c(Beta = 100, mu_EI = 200, mu_IR = 40, rho = 0.3, eta = 1),
   nseq = NSTART
 )
 

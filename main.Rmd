@@ -1,8 +1,7 @@
 ---
-title: "Exploratory Data Analysis"
+title: "An Analysis of COVID-19 Cases in Washtenaw County"
 subtitle: "STATS 531 Final Project (W21)"
-author: "Yanyu Long"
-date: "Apr 13, 2021"
+author: "Sean Kelly, Yanyu Long, Cheng Wang"
 output: 
   html_document:
     toc: true
@@ -12,7 +11,7 @@ output:
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = TRUE, #! TODO: switch to FALSE later
+  echo = FALSE, #! TODO: switch to FALSE later
   warning = FALSE,
 	message = FALSE,
 	include = TRUE,
@@ -52,18 +51,524 @@ tr:nth-child(odd) td {
 }
 ```
 
+
+[TODO: Maybe polish the title?]{.comment}
+
 ---
 
-```{r child = 'eda_benchmark.Rmd'}
+## Introduction
+
+[TODO: Add introduction/motivation.]{.comment}
+
+---
+
+## Data
+
+The data consist of confirmed COVID-19 cases by county and by date in the State of Michigan from March 2020 to April 2021, and were collected by the Michigan Disease Surveillance System (MDSS)[[1]](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html). 
+
+---
+
+## Exploratory Data Analysis
+
+
+```{r}
+library(tidyverse)
+cases = read.csv("cases_deaths_by_county_date.csv",
+                 colClasses = list(Date = "Date")) %>%
+  filter(!is.na(Date), CASE_STATUS == "Confirmed") %>%
+  select(-Updated, -CASE_STATUS, -ends_with("Cumulative"))
+```
+
+```{r, fig.height = 4.5, fig.width = 8}
+cases %>% 
+  mutate(Cases_Washtenaw = ifelse(COUNTY == "Washtenaw", Cases, 0)) %>% 
+  group_by(Date) %>%
+  summarise(Cases_Michigan = sum(Cases), Cases_Washtenaw = sum(Cases_Washtenaw),
+            .groups = "drop") %>%
+  pivot_longer(-Date, names_to = "County", names_pattern = "Cases_(.*)", values_to = "Cases") %>%
+  ggplot() +
+    facet_wrap(~County, nrow = 2, scales = "free_y") +
+    theme_bw() +
+    geom_line(aes(Date, Cases, color = County), size = .6) +
+    scale_color_manual(
+      name = "Cases by Date", values = c("#69b3a2", "#a55b6c")
+    ) +
+    scale_x_date(date_labels = "%m-%Y") +
+    guides(color = FALSE)
+```
+
+
+[TODO: Add analysis on the overall trend. Use policies/news to justify dropping the 2021 observations]{.comment}
+
+... So we decide to focus on the 2020 case reports, which leaves us with 306 data points. 
+
+The periodogram of our data shows two dominant frequencies. The first one, $\omega_1 = 0.00313$, corresponds to a period of 320 days. The second one is $\omega_2 = 0.14375$, which corresponds to a 7-day period. Next, I will use the period of 7 days to fit a SARMA model. 
+
+```{r, fig.width = 7, fig.height = 3.5}
+cases = read.csv("cases_deaths_by_county_date.csv",
+                 colClasses = list(Date = "Date")) %>%
+  # select records of confirmed cases in Washtenaw County
+  filter(!is.na(Date), CASE_STATUS == "Confirmed", COUNTY == "Washtenaw") %>%
+  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative")) %>%
+  # select records in 2020 only
+  filter(Date < as.Date("2021-01-01"))
+
+log_cases = log(1 + cases$Cases)
+smoothed = spectrum(log_cases, spans=c(5, 5, 5), main="Periodogram (Smoothed)")
+idx_max = which.max(smoothed$spec)
+idx_max2 = which.max(smoothed$spec[41:length(smoothed$spec)]) + 40
+abline(v=smoothed$freq[idx_max], lty=2, col='red') # freq = 0.002469, 405 days
+abline(v=smoothed$freq[idx_max2], lty=2, col='red') # freq = 0.1432099, 1 week
 ```
 
 ---
 
-```{r child = 'pomp_seir.Rmd'}
+```{r, echo = FALSE}
+NCORES = 1L
+CACHE_DIR = "pomp_cache/"
+run_level = 2
+NP = switch(run_level, 50, 1e3, 3e3) # number of particles
+NMIF_S = switch(run_level, 5, 50, 100) # number of filtering iterations - small
+NMIF_L = switch(run_level, 10, 100, 200) # - large
+NREPS_EVAL = switch(run_level, 5, 20, 40) # number of replications in likelihood evaluation
+NREPS_LOCAL = switch(run_level, 10, 20, 30) # number of replications in local search
+NSTART = switch(run_level, 50, 500, 800) # number of starting points in the global search
+NSIM = switch(run_level, 50, 100, 500) # number of simulations
+
+PARAMS_FILE = "pomp_cache/writeup_params.csv"
+
+suppressPackageStartupMessages({
+  library(foreach)
+  library(doParallel)
+  library(doRNG)
+  library(tidyverse)
+  library(pomp)
+})
+cl = makeCluster(NCORES)
+registerDoParallel(cl)
+registerDoRNG(625904618)
+```
+
+## SEIR Model
+
+### Model specification
+
+```{r}
+cases = read.csv("cases_deaths_by_county_date.csv",
+                 colClasses = list(Date = "Date")) %>%
+  # select records of confirmed cases in Washtenaw County
+  filter(!is.na(Date), CASE_STATUS == "Confirmed", COUNTY == "Washtenaw") %>%
+  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative")) %>%
+  # select records in 2020 only
+  filter(Date < as.Date("2021-01-01")) %>%
+  # transform `Date` to numeric form
+  mutate(Time = 1:n())
+covid_t0 = min(cases$Time)
+```
+
+[TODO: Add SEIR model settings, justifications for the beta step function, and justification for the initial state values (E and I).]{.comment}
+
+```{r, echo = TRUE}
+seir_step = Csnippet("
+  double Beta;
+  if(intervention == 1) Beta = b1;
+  else if(intervention == 2) Beta = b2;
+  else if(intervention == 3) Beta = b3;
+  else if(intervention == 4) Beta = b4;
+  else Beta = b5;
+  
+  double dN_SE = rbinom(S, 1 - exp(-Beta * I / N * dt));
+  double dN_EI = rbinom(E, 1 - exp(-mu_EI * dt));
+  double dN_IR = rbinom(I, 1 - exp(-mu_IR * dt));
+  S -= dN_SE;
+  E += dN_SE - dN_EI;
+  I += dN_EI - dN_IR;
+  H += dN_IR;
+")
+
+seir_rinit = Csnippet("
+  S = nearbyint(eta * N);
+  E = 100;
+  I = 200;
+  H = 0;
+")
+
+dmeas <- Csnippet("
+  double tol=1.0e-25;
+  double mean =rho*H;
+  double sd =sqrt(pow(tau*H,2)+rho*H);
+  if(Cases>0.0){
+    lik=pnorm(Cases+0.5,mean,sd,1,0)-pnorm(Cases-0.5,mean,sd,1,0)+tol;
+  } else {
+    lik=pnorm(Cases+0.5,mean,sd,1,0)+tol;
+  }
+  if(give_log) lik=log(lik);
+")
+
+rmeas <- Csnippet("
+  Cases = rnorm(rho*H, sqrt(pow(tau*H,2)+rho*H));
+  if(Cases>0.0){
+    Cases=nearbyint(Cases);
+  } else {
+    Cases=0.0;
+  }
+")
+
+seir_covar <- covariate_table(
+  t = cases$Time,
+  intervention = c(rep(1, 23),
+                   rep(2, 77),
+                   rep(3, 20),
+                   rep(4, 75),
+                   rep(5, 111)),
+  times = "t")
+
+covidSEIR = cases %>% select(Time, Cases) %>%
+  pomp(
+    times = "Time", t0 = covid_t0,
+    rprocess = euler(seir_step, delta.t = 1), # delta.t set to 1 day
+    rinit = seir_rinit,
+    rmeasure = rmeas,
+    dmeasure = dmeas,
+    accumvars = "H",
+    partrans=parameter_trans(
+      log = c("mu_EI", "mu_IR", "tau", "b1", "b2", "b3", "b4", "b5"),
+      logit = c("rho", "eta")
+    ),
+    statenames = c("S", "E", "I", "H"),
+    paramnames = c("b1", "b2", "b3", "b4", "b5", "mu_EI", "mu_IR", 
+                   "eta", "rho", "N", "tau"),
+    covar = seir_covar
+  )
+```
+
+### Choosing starting points
+
+As of the [2019 census](https://fred.stlouisfed.org/series/MIWASH1POP), the resident population in Washtenaw County was 367,601. We will use this value as an approximation for the population in March 2020. In the following analysis, we will fix the population $N$ to 367,601.  
+
+According to the Centers for Disease Control and Prevention (CDC), the incubation period (the time from exposure to development of symptoms) of coronaviruses ranges from 2–14 days. [[2]](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission)
+So we expect $\mu_{EI}$ to fall into the range of $\frac{1}{2\text{ wk} = 14\text{ da}} = 0.071\text{ da}^{-1}$ to $\frac{1}{2\text{ day}} = 0.5\text{ da}^{-1}$.
+It can take at least two weeks for people to recover from COVID-19 infection. [[3]](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC). So we can expect $\mu_{IR}$ to fall into the range of $0.048-0.071\text{ da}^{-1}$. For the starting values, we will set both $mu_EI$ and $mu_IR$ to 0.1.
+
+[TODO: Add some more analysis about eta and rho (and tau?)]{.comment}
+
+Based on the above information, we can specify the starting points of the local search: 
+
+\[
+\begin{cases}
+b_1 = 3,\ b_2 = 0.5,\ b_3= 4,\ b_4 = 1.5,\ b_5 = 3.2 \\
+\mu_{EI} = 0.1 \\
+\mu_{IR} = 0.1 \\
+\rho = 0.5 \\
+\eta = 0.09 \\
+\tau = 0.001 \\
+N = 367,601
+\end{cases}
+\]
+
+```{r, echo = TRUE}
+pop_washtenaw = 367601
+params = c(b1 = 3, b2 = 0.5, b3 = 4, b4 = 1.5, b5 = 3.2, 
+            mu_EI = 0.1, mu_IR = 0.1, rho = 0.5, eta = 0.09, 
+            tau = 0.001, N = pop_washtenaw)
+fixed_params = params[c("N")]
+params_rw.sd = rw.sd(b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
+                     mu_EI = 0.02, mu_IR = 0.02, rho = 0.02, 
+                     tau = 0.0001, eta = ivp(0.02))
+```
+
+
+```{r}
+registerDoRNG(1235252)
+bake(file = "pomp_cache/writeup_lik_starting_values.rds", {
+  foreach(i=1:10, .combine = c) %dopar% {
+    library(pomp)
+    covidSEIR %>% pfilter(params=params,  Np=500)
+  }
+}) -> pf
+pf %>% logLik() %>% logmeanexp(se = TRUE)
+```
+
+The simulation based on the starting values has an outbreak but does not capture the data well. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
+
+```{r, echo = FALSE, fig.width = 6, fig.height = 3}
+plot_simulation = function(sim_dat) {
+  sim_dat %>%
+    ggplot() +
+    theme_bw() +
+    geom_line(aes(Time, Cases, group = .id, 
+                  color = (.id == "data"), alpha = (.id == "data"), 
+                  linetype = (.id == "data"))) +
+    scale_color_manual(values = c("#18bc9c", "#c61919")) +
+    scale_alpha_manual(values = c(0.5, 1)) +
+    scale_linetype_manual(values = c(5, 1)) +
+    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
+} # plot_simulation()
+
+covidSEIR %>%
+  simulate(params = params, nsim = 20, format = "data.frame", include.data = TRUE) %>% 
+  plot_simulation()
+```
+
+### Local Search
+
+[TODO: add analysis]{.comment}
+
+```{r, fig.height = 5, fig.width = 8, echo = TRUE}
+run_id = 1
+registerDoRNG(482947940)
+bake(file = "pomp_cache/writeup_local_search.rds", {
+  foreach(i = 1:NREPS_LOCAL, .combine = c) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    covidSEIR %>%
+      mif2(
+        params = params,
+        Np = NP, Nmif = NMIF_S,
+        cooling.fraction.50 = 0.5,
+        rw.sd = params_rw.sd
+      )
+  } -> mifs_local
+  attr(mifs_local,"ncpu") <- getDoParWorkers()
+  mifs_local
+}) -> mifs_local
+
+mifs_local %>%
+  traces() %>%
+  melt() %>%
+  ggplot(aes(x = iteration, y = value, group = L1, color = factor(L1))) +
+  theme_bw() +
+  geom_line() +
+  guides(color = FALSE) +
+  facet_wrap(~variable, scales = "free_y")
+```
+
+
+```{r, echo = TRUE}
+# likelihood est. for local search results
+registerDoRNG(900242057)
+bake(file = "pomp_cache/writeup_lik_local.rds", {
+  foreach(mf = mifs_local, .combine = rbind) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    ll = replicate(NREPS_EVAL, logLik(pfilter(mf, Np = NP))) %>% 
+         logmeanexp(se = TRUE)
+    coef(mf) %>% bind_rows() %>% bind_cols(loglik = ll[1], loglik.se = ll[2])
+  } -> results
+  attr(results,"ncpu") <- getDoParWorkers()
+  results
+}) -> results
+```
+
+```{r}
+results %>% arrange(-loglik) %>% head %>% 
+  knitr::kable(digits = 3, caption = "Local search results (in decreasing order of likelihood)")
+```
+
+```{r, eval = FALSE, fig.height = 7, fig.width = 7}
+pairs(~loglik + b1 + b2 + b3 + b4 + b5, data = results, pch = 16)
+pairs(~loglik + mu_EI + mu_IR + eta + rho + tau, data = results, pch = 16)
+```
+
+### Global Search
+
+```{r, echo = TRUE}
+run_id = 2
+
+# create a box of starting values (for parameters)
+set.seed(2062379496)
+guesses = runif_design(
+  lower = c(b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, 
+            mu_EI = 0, mu_IR = 0, rho = 0, eta = 0, tau = 0),
+  upper = c(b1 = 10, b2 = 10, b3 = 10, b4 = 10, b5 = 10, 
+            mu_EI = 1, mu_IR = 1, rho = 1, eta = 0.3, tau = 0.1),
+  nseq = NSTART
+)
+
+mf1 = mifs_local[[1]] # take the output of previous IF process (local search)
+
+bake(file = "pomp_cache/writeup_global_search.rds",{
+  registerDoRNG(1270401374)
+  foreach(guess=iter(guesses, "row"), .combine = rbind) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    mf = mf1 %>% # cooling.fraction.50 = 0.5
+      mif2(params = c(unlist(guess), fixed_params), Nmif = NMIF_L) %>%
+      mif2(Nmif = NMIF_L) %>%
+      mif2(Nmif = NMIF_L)
+    mf = mf %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.3) %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.3) %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.1) %>%
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.1)
+    ll = replicate(NREPS_EVAL, mf %>% pfilter(Np = NP) %>% logLik()) %>%
+      logmeanexp(se = TRUE)
+    coef(mf) %>% bind_rows() %>%
+      bind_cols(loglik = ll[1],loglik.se = ll[2])
+  } -> results
+  attr(results,"ncpu") <- getDoParWorkers()
+  results
+}) %>%
+  filter(is.finite(loglik)) -> results
+```
+
+[TODO: add analysis]{.comment}
+
+```{r, fig.height = 7, fig.width = 7}
+all = read_csv(PARAMS_FILE) %>%
+  filter(id <= 2) %>%
+  filter(loglik > max(loglik) - 50) %>%
+  bind_rows(guesses) %>%
+  mutate(type = if_else(is.na(loglik), "guess", "result")) %>%
+  arrange(type)
+
+pairs(~loglik + b1 + b2 + b3 + b4 + b5, data = all,
+      col = ifelse(all$type == "guess", grey(0.5), "red"), pch = 16)
+pairs(~loglik + mu_EI + mu_IR + eta + rho + tau, data = all,
+      col = ifelse(all$type == "guess", grey(0.5), "red"), pch = 16)
+```
+
+### Simulation results  
+
+[TODO: add analysis]{.comment}
+
+```{r, fig.height = 3, fig.width = 6}
+optimal_params = read.csv(PARAMS_FILE) %>% slice(1) %>%
+  select(-starts_with("loglik"), -id) %>% unlist()
+covidSEIR %>%
+  simulate(
+    params = optimal_params, nsim = 10, format = "data.frame", include.data = TRUE
+  ) %>%
+  plot_simulation()
+```
+
+### Profile likelihood for the reporting rate
+
+```{r, echo = TRUE}
+run_id = 3
+
+guesses = read.csv(PARAMS_FILE) %>%
+  group_by(cut = round(rho, 2)) %>%
+  filter(rank(-loglik) <= 10) %>%
+  ungroup() %>%
+  select(-cut, -loglik, -loglik.se)
+
+rw.sd_rho_fixed = rw.sd(
+  b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
+  mu_EI = 0.02, mu_IR = 0.02, rho = 0, tau = 0.0001, eta = ivp(0.02)
+)
+
+mf1 = mifs_local[[1]]
+registerDoRNG(2105684752)
+bake(file = "pomp_cache/writeup_profile_rho.rds", {
+  foreach(guess = iter(guesses, "row"), .combine = rbind) %dopar% {
+    suppressPackageStartupMessages({
+      library(tidyverse)
+      library(pomp)
+    })
+    mf = mf1 %>%
+      mif2(params = guess, rw.sd = rw.sd_rho_fixed) %>% 
+      mif2(Nmif = NMIF_L, cooling.fraction.50 = 0.3) %>%
+      mif2(cooling.fraction.50 = 0.1)
+    ll = replicate(NREPS_EVAL, mf %>% pfilter(Np = NP) %>% logLik()) %>%
+      logmeanexp(se = TRUE)
+    coef(mf) %>% bind_rows() %>% bind_cols(loglik = ll[1],loglik.se = ll[2])
+  } -> results
+  attr(results, "ncpu") = getDoParWorkers()
+  results
+}) -> results
+```
+
+```{r, echo = TRUE, fig.width = 5, fig.height = 3}
+results %>%
+  filter(loglik > max(loglik) - 10, loglik.se < 2) %>%
+  group_by(round(rho, 2)) %>%
+  filter(rank(-loglik) < 3) %>%
+  ungroup() %>%
+  ggplot(aes(x = rho, y=loglik)) +
+  theme_bw() +
+  geom_point() +
+  geom_hline(
+    color="red",
+    yintercept=max(results$loglik) - 0.5 * qchisq(df = 1, p = 0.95)
+  )
+
+rho_ci = results %>%
+  filter(is.finite(loglik)) %>%
+  filter(loglik > max(loglik) - 0.5 * qchisq(df = 1, p = 0.95)) %>%
+  summarize(min = min(rho), max = max(rho))
+print(rho_ci)
+```
+
+[TODO: add analysis]{.comment}
+
+---
+
+## Likelihood Benchmark
+
+[TODO: Add interpretation for this part.]{.comment}
+
+### Negative Binomial
+
+```{r, echo = TRUE}
+nb_lik = function(theta) {- sum(dnbinom(
+  cases$Cases, size = exp(theta[1]), prob = exp(theta[2]), log = TRUE
+))}
+nb_mle = optim(c(0, -5), nb_lik)
+-nb_mle$value
+```
+
+### ARMA
+
+As mentioned in the exploratory analysis section, one of the dominant frequency of the data correspond to a 7-day period, which is why we will use the period of 7 days to fit a SARMA model. 
+
+```{r, echo = FALSE}
+generate_aic_table=function(data, P, Q, D=0, ...){
+	table=matrix(NA, (P+1), (Q+1))
+	for(p in 0:P) {
+		for(q in 0:Q) {
+		  model_aic = try(
+		    arima(data, order = c(p, D, q), method="ML", ...)$aic, 
+		    silent = TRUE
+		  )
+		  table[p + 1,q + 1] = ifelse(
+		    inherits(model_aic, "try-error"), NA, model_aic
+		  )
+		}
+	}
+	dimnames(table) = list(paste("AR", 0:P, sep=""), paste("MA", 0:Q, sep=""))
+  table
+}
+```
+
+A simple search over the parameters shows that the best fit is given by a $SARMA(3,3)\times(1,1)_7$ model with an AIC of 231.698. We will use this model for the likelihood benchmark analysis.
+
+```{r, eval = FALSE, echo = FALSE}
+table_s00 = generate_aic_table(data = log_cases, P = 5, Q = 5) # 268.4441
+table_s10 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 250.564
+                               seasonal = list(order = c(1, 0, 0), period = 7))
+table_s01 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 261.7778
+                               seasonal = list(order = c(0, 0, 1), period = 7))
+table_s11 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 231.6978, p=q=3
+                               seasonal = list(order = c(1, 0, 1), period = 7))
+```
+
+```{r, echo = TRUE}
+arma33_s11 = arima(log_cases, order = c(3, 0, 3), method="ML",
+                   seasonal = list(order = c(1, 0, 1), period = 7))
+arma33_s11$loglik - sum(log_cases) # -1104.23
 ```
 
 ---
 
 ## References
 
-[1] [Michigan Disease Surveillance System (MDSS)](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html), "Cases and Deaths by County by Date of Onset of Symptoms and Date of Death". Accessed April 7, 2021.
+[1] Michigan Disease Surveillance System (MDSS), ["Cases and Deaths by County by Date of Onset of Symptoms and Date of Death"](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html). Accessed April 7, 2021.  
+[2] Centers for Disease Control and Prevention (CDC), ["Clinical Questions about COVID-19: Questions and Answers - When is someone infectious?"](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission).  
+[3] Reuters, ["Young, healthy adults with mild COVID-19 also take weeks to recover: CDC"](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC)).  

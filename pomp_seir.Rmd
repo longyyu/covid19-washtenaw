@@ -68,7 +68,7 @@ rmeas <- Csnippet("
   Cases = rbinom(H, rho);
 ")
 
-measSEIR = cases %>% select(Time, Cases) %>%
+covidSEIR = cases %>% select(Time, Cases) %>%
   pomp(
     times = "Time", t0 = t0,
     rprocess = euler(seir_step, delta.t = 1),
@@ -87,29 +87,53 @@ measSEIR = cases %>% select(Time, Cases) %>%
 
 ### Search for starting points  
 
+[Update this section]{.comment}
+
 As of the [2019 census](https://fred.stlouisfed.org/series/MIWASH1POP), the resident population in Washtenaw County was 367,601. We will use this value as an approximation for the population in March 2020. In the following analysis, we will fix the population $N$ to 367,601.  
 
-To help determine the starting points of other parameters, we ran a simplified global search with population $N$ fixed and all the other parameters variable. Below are the ranges of working starting points (i.e., parameters that do not lead to infinite likelihoods) we found. 
-
-```{r, echo = FALSE}
-params_start = read.csv("params_starting_points_deltat=1.csv") %>% filter(!is.na(loglik.se))
-params_start %>% arrange(-loglik) %>% head() %>% knitr::kable()
-# params_start %>% 
-#   select(all_of(c("Beta", "rho", "eta", "mu_EI", "mu_IR"))) %>%
-#   summary() %>% knitr::kable()
-```
+According to the Centers for Disease Control and Prevention (CDC), the incubation period (the time from exposure to development of symptoms) of coronaviruses ranges from 2–14 days. [[2]](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission)
+So we expect $\mu_{EI}$ to fall into the range of $\frac{1}{2\text{ wk} = 1/26\text{ yr}} = 26\text{ yr}^{-1}$ to $\frac{1}{2\text{ day} = 1/183\text{ yr}} = 183\text{ yr}^{-1}$.
+It can take at least two weeks for people to recover from COVID-19 infection. [[3]](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC). So we can expect $\mu_{IR}$ to fall into the range of $13-26\text{ yr}^{-1}$.
 
 Based on the above information, we set the starting points of the search to: 
-
-$$\beta = 100,000, \mu_{EI} = 3, \mu_{IR} = 1, \rho = 0.12, \eta = 0.8$$
+\[
+\begin{cases}
+\beta = 80 \\
+\mu_{EI} = 80 \\
+\mu_{IR} = 26 \\
+\rho = 0.5 \\
+\eta = 0.5
+\end{cases}
+\]
 
 ```{r}
-pop_washtenaw = 367601
-params = c(Beta = 1e05, mu_EI = 3, mu_IR = 1, rho = 0.12, eta = 0.8, N = pop_washtenaw)
+pop_washtenaw = 367000
+params = c(Beta = 80, mu_EI = 80, mu_IR = 26, rho = 0.5, eta = 0.5, N = pop_washtenaw)
 fixed_params = params[c("N")]
 params_rw.sd = rw.sd(Beta = 0.02, mu_EI = 0.02, mu_IR = 0.02,
                      rho = 0.02, eta = ivp(0.04)) 
 pairs_formula = ~loglik + Beta + mu_EI + mu_IR + eta + rho
+```
+
+The simulation based on the starting values has an outbreak but does not capture the data well. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
+
+```{r, echo = FALSE, fig.width = 6, fig.height = 3}
+plot_simulation = function(sim_dat) {
+  sim_dat %>%
+    ggplot() +
+    theme_bw() +
+    geom_line(aes(Time, Cases, group = .id, 
+                  color = (.id == "data"), alpha = (.id == "data"), 
+                  linetype = (.id == "data"))) +
+    scale_color_manual(values = c("#18bc9c", "#c61919")) +
+    scale_alpha_manual(values = c(0.5, 1)) +
+    scale_linetype_manual(values = c(5, 1)) +
+    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
+} # plot_simulation()
+
+covidSEIR %>%
+  simulate(params = params, nsim = 20, format = "data.frame", include.data = TRUE) %>% 
+  plot_simulation()
 ```
 
 ### Local Search
@@ -123,7 +147,7 @@ bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "local_search.rds"
       library(tidyverse)
       library(pomp)
     })
-    measSEIR %>%
+    covidSEIR %>%
       mif2(
         params = params,
         Np = NP, Nmif = NMIF_S,
@@ -236,19 +260,11 @@ pairs(pairs_formula, data = all,
 ```{r, fig.height = 3, fig.width = 6}
 optimal_params = read.csv(PARAMS_FILE) %>% slice(1) %>%
   select(-starts_with("loglik"), -id) %>% unlist()
-measSEIR %>%
+covidSEIR %>%
   simulate(
     params = optimal_params, nsim = 20, format = "data.frame", include.data = TRUE
   ) %>%
-  ggplot() +
-    theme_bw() +
-    geom_line(aes(Time, Cases, group = .id, 
-                  color = (.id == "data"), alpha = (.id == "data"), 
-                  linetype = (.id == "data"))) +
-    scale_color_manual(values = c("#18bc9c", "#c61919")) +
-    scale_alpha_manual(values = c(0.75, 1)) +
-    scale_linetype_manual(values = c(5, 1)) +
-    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
+  plot_simulation()
 ```
 
 ```{r, echo = FALSE}

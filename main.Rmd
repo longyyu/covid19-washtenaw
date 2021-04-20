@@ -18,22 +18,6 @@ knitr::opts_chunk$set(
   comment = '',
   fig.align = "center"
 )
-
-library(tidyverse)
-
-plot_simulation = function(sim_dat) {
-  sim_dat %>%
-    ggplot() +
-    theme_bw() +
-    geom_line(aes(Time, Cases, group = .id, 
-                  color = (.id == "data"), alpha = (.id == "data"), 
-                  linetype = (.id == "data"))) +
-    scale_color_manual(values = c("#18bc9c", "#c61919")) +
-    scale_alpha_manual(values = c(0.5, 1)) +
-    scale_linetype_manual(values = c(5, 1)) +
-    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
-} # plot_simulation()
-
 # rm(list = ls()); rmarkdown::render("main.Rmd")
 ```
 
@@ -90,6 +74,7 @@ The data consist of confirmed COVID-19 cases by county and by date in the State 
 
 
 ```{r}
+library(tidyverse)
 cases = read.csv("cases_deaths_by_county_date.csv",
                  colClasses = list(Date = "Date")) %>%
   filter(!is.na(Date), CASE_STATUS == "Confirmed") %>%
@@ -170,11 +155,11 @@ registerDoRNG(625904618)
 
 ### Model specification
 
-According to the lecture, based on the SIR model, SEIR model adds a stage "E" which means infected individuals must pass a period of latency before becoming infectious. In practice, SEIR model is more adaptable than SIR model.
+According to thr lecture, based on the SIR model, SEIR model adds a stage "E" which means infected individuals must pass a period of latency before becoming infectious. In practice, SEIR model is more adaptable than SIR model.
 
 [Here is the structure of SEIR model]
 
-We assume that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $mu_{EI}$ is the rate at which individuals in E transition to I and $mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
+We suppose that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $mu_{EI}$ is the rate at which individuals in E transition to I and $mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
 
 Then the number of people in each compartment can be computed by
 \[
@@ -189,17 +174,17 @@ R(t)&=R(0)+N_{IR}(t)
 where
 \[
 \begin{split}
-\Delta N_{SE}&\sim \mathrm{Binomial}(S,1-e^{\beta\frac{1}{N}\Delta t})\\
-\Delta N_{EI}&\sim \mathrm{Binomial}(E,1-e^{-\mu_{EI}\Delta t})\\
-\Delta N_{IR}&\sim \mathrm{Binomial}(I,1-e^{^{-\mu_{IR}\Delta t}})
+\Delta N_{SE}&\sim Binomial(S,1-e^{\beta\frac{1}{N}\Delta t})\\
+\Delta N_{EI}&\sim Binomial(E,1-e^{-\mu_{EI}\Delta t})\\
+\Delta N_{IR}&\sim Binomial(I,1-e^{^{-\mu_{IR}\Delta t}})
 \end{split}
 \]
 
 As for the measurement model, we use discretized normal distribution truncated at 0, with environmental and Poisson-scale contributions to the variance. 
 
-$$\text{Cases}=\max\{\mathrm{round}(C_n),0\},\ \ \ C_n\sim \mathrm{N}(\rho H_n,(\tau H_n)^2+\rho H_n)$$
+$$Cases=max\{round(C_n),0\},\ \ \ C_n\sim N(\rho H_n,(\tau H_n)^2+\rho H_n)$$
 
-where $H$ tracks the number of individuals transition from I to R. 
+where $H$ track the number of individuals transition from I to R. 
 
 ```{r}
 cases = read.csv("cases_deaths_by_county_date.csv",
@@ -218,11 +203,7 @@ covid_t0 = min(cases$Time)
 
 To account for demography, for simplicity, we set birth rate, death rate and movement of population as 0, and consider the total population $N=S+E+I+R$ as fixed. Besides, there are several outbreak in our data, and traditional SEIR model can only explain situations with one peak, just like the figure shown below. Therefore, we let $\beta$ vary from time to time, and set a step function, just like we mentioned in EDA that the contact rate changes with the development of epidemic. 
 
-
-```{r, fig.width = 5, fig.height = 3, fig.cap = "Simulations under the basic SEIR model setting (with constant contact rate)"}
-load(file = "pomp_cache/writeup_constant_beta_simulation.rds")
-dat_simulated %>% plot_simulation()
-```
+[here need a plot]
 
 Moreover, we can see there is a small breakout in the early time, and then slow down. The report of first case in Washternaw County [[2]](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases) mentioned that the patient had traveled to other areas. Thus we suppose that the first peak in our data is caused by external population, and set intial value $E=100$ and $I=200$. 
 
@@ -348,6 +329,19 @@ pf %>% logLik() %>% logmeanexp(se = TRUE)
 The simulations based on the starting values are able to capture general trend of the data. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
 
 ```{r, echo = FALSE, fig.width = 6, fig.height = 3}
+plot_simulation = function(sim_dat) {
+  sim_dat %>%
+    ggplot() +
+    theme_bw() +
+    geom_line(aes(Time, Cases, group = .id, 
+                  color = (.id == "data"), alpha = (.id == "data"), 
+                  linetype = (.id == "data"))) +
+    scale_color_manual(values = c("#18bc9c", "#c61919")) +
+    scale_alpha_manual(values = c(0.5, 1)) +
+    scale_linetype_manual(values = c(5, 1)) +
+    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
+} # plot_simulation()
+
 covidSEIR %>%
   simulate(params = params, nsim = 20, format = "data.frame", include.data = TRUE) %>% 
   plot_simulation()
@@ -621,7 +615,7 @@ arma33_s11$loglik - sum(log_cases) # -1104.23
 
 In this project, we carry out a modified SEIR model for Washternaw County covid data. Simulations on parameters determined by local and global search reveals that the SEIR model can fit the data pretty well. The step function of beta can also help to explain the multiply peaks. By doing analysing, we can see that the contact rate does play a important role in the spread of virus. Frequent meeting has a negative effect on the epidemic control, thus no wonder many people were punished because of gathering.
 
-Our model is set up under a series of ideal assumptions, which could not happen in real world. There are a number of factors that could affect the spread of Covid-19 and the number of cases. For example, the incubation and recovery period vary from people to people; reovery people could be reinfected; 
+Our model is set up under a series of ideal assumptions, which could not happen in real world. There are a number of factors that could affect the spread of Covid-19 and the number of cases. For example, the incubation and recovery period vary from people to people; reovery people could be reinfected; birth rate, death rate and movement of population cannot be 0. Under the action of government, people who are suspected to be infected will be separated, which could induce a SEQIR model. If considering the environment and the spread the pathogens, we can introduce another SEIR-P model. For future study, we could loose the assumptions and add more parameters to set up a more complex model. The models may rarely tell the whole actual situation, but we can alway learn something when fitting a model.
 
 ## References
 

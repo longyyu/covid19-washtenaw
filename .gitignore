@@ -3,5 +3,6 @@
 .Rhistory
 .RData
 .Ruserdata
-pomp_cache/
+pomp_cache/runlevel*
+pomp_cache/cache*
 

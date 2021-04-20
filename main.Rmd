@@ -230,11 +230,11 @@ Therefore, we let $\beta$ vary from time to time, and set a step function, just 
 
 \[
   \beta = \begin{cases}
-    b_1, & \text{01/03/2020-21/03/2020}.\\
-    b_2, & \text{24/03/2020-08/06/2020}. \\
-    b_3, & \text{09/06/2020-28/06/2020}. \\
-    b_4, & \text{29/06/2020-11/09/2020}. \\
-    b_5, & \text{12/09/2020-31/12/2020}.
+    b_1, & \text{01/03 - 21/03/2020}.\\
+    b_2, & \text{24/03 - 08/06/2020}. \\
+    b_3, & \text{09/06 - 28/06/2020}. \\
+    b_4, & \text{29/06 - 11/09/2020}. \\
+    b_5, & \text{12/09 - 31/12/2020}.
   \end{cases}
 \]
 
@@ -533,6 +533,8 @@ pairs(~loglik + eta + rho + tau, data = all,
 
 ### Profile likelihood for the reporting rate
 
+We will perform a profile likelihood test for the reporting rate $\rho$ by running the iterated filtering operations while keeping $\rho$ fixed, and we will start the process at points we have established high likelihoods in the global search. 
+
 ```{r, echo = TRUE}
 run_id = 3
 guesses = read.csv(PARAMS_FILE) %>%
@@ -589,15 +591,17 @@ rho_ci = all %>%
 print(rho_ci)
 ```
 
-[TODO: add analysis]{.comment}
+The 95% confidence interval for $\rho$ is [40.97%, 48.01%], which is a reasonable range. But we would want to remain cautious about this result as only three points are above the threshold. 
 
 ---
 
 ## Likelihood Benchmark
 
-[TODO: Add interpretation for this part.]{.comment}
+To further check the compatibility of our model specification with the data, we compute some log likelihood benchmarks using non-mechanistic approaches. 
 
 ### Negative Binomial
+
+We first pick a negative binomial model which finds independent, identically distributed interpretation for the data. The log likelihood for this model is -1,464.861, which is beaten by our initial guess before running the global search. 
 
 ```{r, echo = TRUE}
 nb_lik = function(theta) {- sum(dnbinom(
@@ -609,7 +613,8 @@ nb_mle = optim(c(0, -5), nb_lik)
 
 ### ARMA
 
-As mentioned in the exploratory analysis section, one of the dominant frequency of the data correspond to a 7-day period, which is why we will use the period of 7 days to fit a SARMA model. 
+Then, we fit an auto-regressive moving-average (ARMA) model using $\log(y_n + 1)$. Unlike the negative binomial model, an ARMA model takes dependence relationships into account. 
+As mentioned in the exploratory analysis section, one of the dominant frequency of the data correspond to a 7-day period, which is why we will use the period of 7 days to fit a seasonal ARMA (SARMA) model. 
 
 ```{r, echo = FALSE}
 generate_aic_table=function(data, P, Q, D=0, ...){
@@ -645,8 +650,10 @@ table_s11 = generate_aic_table(data = log_cases, P = 5, Q = 5, # 231.6978, p=q=3
 ```{r, echo = TRUE}
 arma33_s11 = arima(log_cases, order = c(3, 0, 3), method="ML",
                    seasonal = list(order = c(1, 0, 1), period = 7))
-arma33_s11$loglik - sum(log_cases) # -1104.23
+arma33_s11$loglik - sum(log_cases)
 ```
+
+This model obtains a log likelihood of -1,104.23, which is in fact higher than our MLE from the global search (-1,151.66). One possible explanation is that our SEIR model does not take into account the cyclical pattern. If we look at the original data, there is clear evidence of high-frequency periodic oscillations, which is backed up by the periodogram analysis. The 7-day period might be caused by some administrative reasons that we do not know of. One can potentially improve the SEIR model performance by incorporating this knowledge in the model settings. 
 
 ---
 

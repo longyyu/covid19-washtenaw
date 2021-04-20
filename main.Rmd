@@ -172,7 +172,11 @@ registerDoRNG(625904618)
 
 According to the lecture, based on the SIR model, SEIR model adds a stage "E" which means infected individuals must pass a period of latency before becoming infectious. In practice, SEIR model is more adaptable than SIR model.
 
-[Here is the structure of SEIR model]
+```{r, out.width = '60%'}
+if (file.exists("seir_flowchart.png")){
+  knitr::include_graphics("seir_flowchart.png")
+}
+```
 
 We assume that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $mu_{EI}$ is the rate at which individuals in E transition to I and $mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
 
@@ -355,7 +359,7 @@ covidSEIR %>%
 
 ### Local Search
 
-[TODO: add analysis]{.comment}
+We first run a local search that starts from our initial guess using iterated filtering with 50 iterations. From the trace plot we can see that the likelihood is increasing for some of the runs, while others are stuck in the local maxima and have trouble climbing up the likelihood surface. The reporting rate $\rho$ presents a downward trend in most runs, and the contact rate parameters $b_1$ and $b_5$ are increasing in some of the runs. It is unclear at this point where the other parameters are moving toward. 
 
 ```{r, fig.height = 5, fig.width = 8, echo = TRUE}
 run_id = 1
@@ -407,7 +411,7 @@ bake(file = "pomp_cache/writeup_lik_local.rds", {
 }) -> results
 ```
 
-```{r}
+```{r, eval = FALSE}
 results %>% arrange(-loglik) %>% head %>% 
   knitr::kable(digits = 3, caption = "Local search results (in decreasing order of likelihood)")
 ```
@@ -418,6 +422,8 @@ pairs(~loglik + mu_EI + mu_IR + eta + rho + tau, data = results, pch = 16)
 ```
 
 ### Global Search
+
+Next, we will perform a global search from multiple starting points, using multiple stages of iterated filtering process with longer iterations and a gradually decreasing magnitude of perturbations. We randomly draw 500 sets of starting values from a multivariate uniform distribution where $b_j \in [0, 10],\ j \in \{1, \ldots, 5\}$, $\rho \in [0, 1]$, $\eta \in [0, 0.3]$, and $\tau \in [0, 0.1]$. 
 
 ```{r, echo = TRUE}
 run_id = 2
@@ -460,6 +466,8 @@ bake(file = "pomp_cache/writeup_global_search.rds",{
 }) %>%
   filter(is.finite(loglik)) -> results
 ```
+
+The search result table displays six groups of parameters with the maximum likelihood values. We see that the parameters with the maximum likelihood values are quite stable 
 
 ```{r}
 results %>% arrange(-loglik) %>% head %>%

@@ -218,15 +218,13 @@ covid_t0 = min(cases$Time)
 
 To account for demography, for simplicity, we set birth rate, death rate and movement of population as 0, and consider the total population $N=S+E+I+R$ as fixed. Besides, there are several outbreak in our data, and traditional SEIR model can only explain situations with one peak, just like the figure shown below. Therefore, we let $\beta$ vary from time to time, and set a step function, just like we mentioned in EDA that the contact rate changes with the development of epidemic. 
 
-[here need a plot]
-
-Moreover, we can see there is a small breakout in the early time, and then slow down. The report of first case in Washternaw County [[2]](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases) mentioned that the patient had traveled to other areas. Thus we suppose that the first peak in our data is caused by external population, and set intial value $E=100$ and $I=200$. 
-
 
 ```{r, fig.width = 5, fig.height = 3}
 load(file = "pomp_cache/writeup_constant_beta_simulation.rds")
 dat_simulated %>% plot_simulation()
 ```
+
+Moreover, we can see there is a small breakout in the early time, and then slow down. The report of first case in Washternaw County [[2]](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases) mentioned that the patient had traveled to other areas. Thus we suppose that the first peak in our data is caused by external population, and set intial value $E=100$ and $I=200$. 
 
 ```{r, echo = TRUE}
 seir_step = Csnippet("

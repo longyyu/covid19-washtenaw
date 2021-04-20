@@ -201,9 +201,21 @@ covid_t0 = min(cases$Time)
 
 ### Model assumption
 
-To account for demography, for simplicity, we set birth rate, death rate and movement of population as 0, and consider the total population $N=S+E+I+R$ as fixed. Besides, there are several outbreak in our data, and traditional SEIR model can only explain situations with one peak, just like the figure shown below. Therefore, we let $\beta$ vary from time to time, and set a step function, just like we mentioned in EDA that the contact rate changes with the development of epidemic. 
+To account for demography, for simplicity, we set birth rate, death rate and movement of population as 0, and consider the total population $N=S+E+I+R$ as fixed. Besides, there are several outbreak in our data, and traditional SEIR model can only explain situations with one peak, just like the figure shown below. 
 
 [here need a plot]
+
+Therefore, we let $\beta$ vary from time to time, and set a step function, just like we mentioned in EDA that the contact rate changes with the development of epidemic. 
+
+\[
+  \beta = \begin{cases}
+    b_1, & \text{01/03/2020-21/03/2020}.\\
+    b_2, & \text{24/03/2020-08/06/2020}. \\
+    b_3, & \text{09/06/2020-28/06/2020}. \\
+    b_4, & \text{29/06/2020-11/09/2020}. \\
+    b_5, & \text{12/09/2020-31/12/2020}.
+  \end{cases}
+\]
 
 Moreover, we can see there is a small breakout in the early time, and then slow down. The report of first case in Washternaw County [[2]](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases) mentioned that the patient had traveled to other areas. Thus we suppose that the first peak in our data is caused by external population, and set intial value $E=100$ and $I=200$. 
 

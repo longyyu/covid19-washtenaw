@@ -170,11 +170,11 @@ registerDoRNG(625904618)
 
 ### Model specification
 
-According to thr lecture, based on the SIR model, SEIR model adds a stage "E" which means infected individuals must pass a period of latency before becoming infectious. In practice, SEIR model is more adaptable than SIR model.
+According to the lecture, based on the SIR model, SEIR model adds a stage "E" which means infected individuals must pass a period of latency before becoming infectious. In practice, SEIR model is more adaptable than SIR model.
 
 [Here is the structure of SEIR model]
 
-We suppose that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $mu_{EI}$ is the rate at which individuals in E transition to I and $mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
+We assume that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $mu_{EI}$ is the rate at which individuals in E transition to I and $mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
 
 Then the number of people in each compartment can be computed by
 \[
@@ -189,17 +189,17 @@ R(t)&=R(0)+N_{IR}(t)
 where
 \[
 \begin{split}
-\Delta N_{SE}&\sim Binomial(S,1-e^{\beta\frac{1}{N}\Delta t})\\
-\Delta N_{EI}&\sim Binomial(E,1-e^{-\mu_{EI}\Delta t})\\
-\Delta N_{IR}&\sim Binomial(I,1-e^{^{-\mu_{IR}\Delta t}})
+\Delta N_{SE}&\sim \mathrm{Binomial}(S,1-e^{\beta\frac{1}{N}\Delta t})\\
+\Delta N_{EI}&\sim \mathrm{Binomial}(E,1-e^{-\mu_{EI}\Delta t})\\
+\Delta N_{IR}&\sim \mathrm{Binomial}(I,1-e^{^{-\mu_{IR}\Delta t}})
 \end{split}
 \]
 
 As for the measurement model, we use discretized normal distribution truncated at 0, with environmental and Poisson-scale contributions to the variance. 
 
-$$Cases=max\{round(C_n),0\},\ \ \ C_n\sim N(\rho H_n,(\tau H_n)^2+\rho H_n)$$
+$$\text{Cases}=\max\{\mathrm{round}(C_n),0\},\ \ \ C_n\sim \mathrm{N}(\rho H_n,(\tau H_n)^2+\rho H_n)$$
 
-where $H$ track the number of individuals transition from I to R. 
+where $H$ tracks the number of individuals transition from I to R. 
 
 ```{r}
 cases = read.csv("cases_deaths_by_county_date.csv",
@@ -219,7 +219,7 @@ covid_t0 = min(cases$Time)
 To account for demography, for simplicity, we set birth rate, death rate and movement of population as 0, and consider the total population $N=S+E+I+R$ as fixed. Besides, there are several outbreak in our data, and traditional SEIR model can only explain situations with one peak, just like the figure shown below. Therefore, we let $\beta$ vary from time to time, and set a step function, just like we mentioned in EDA that the contact rate changes with the development of epidemic. 
 
 
-```{r, fig.width = 5, fig.height = 3}
+```{r, fig.width = 5, fig.height = 3, fig.cap = "Simulations under the basic SEIR model setting (with constant contact rate)"}
 load(file = "pomp_cache/writeup_constant_beta_simulation.rds")
 dat_simulated %>% plot_simulation()
 ```

@@ -18,6 +18,22 @@ knitr::opts_chunk$set(
   comment = '',
   fig.align = "center"
 )
+
+library(tidyverse)
+
+plot_simulation = function(sim_dat) {
+  sim_dat %>%
+    ggplot() +
+    theme_bw() +
+    geom_line(aes(Time, Cases, group = .id, 
+                  color = (.id == "data"), alpha = (.id == "data"), 
+                  linetype = (.id == "data"))) +
+    scale_color_manual(values = c("#18bc9c", "#c61919")) +
+    scale_alpha_manual(values = c(0.5, 1)) +
+    scale_linetype_manual(values = c(5, 1)) +
+    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
+} # plot_simulation()
+
 # rm(list = ls()); rmarkdown::render("main.Rmd")
 ```
 
@@ -74,7 +90,6 @@ The data consist of confirmed COVID-19 cases by county and by date in the State 
 
 
 ```{r}
-library(tidyverse)
 cases = read.csv("cases_deaths_by_county_date.csv",
                  colClasses = list(Date = "Date")) %>%
   filter(!is.na(Date), CASE_STATUS == "Confirmed") %>%
@@ -205,6 +220,12 @@ To account for demography, for simplicity, we set birth rate, death rate and mov
 
 Moreover, we can see there is a small breakout in the early time, and then slow down. The report of first case in Washternaw County [[2]](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases) mentioned that the patient had traveled to other areas. Thus we suppose that the first peak in our data is caused by external population, and set intial value $E=100$ and $I=200$. 
 
+
+```{r, fig.width = 5, fig.height = 3}
+load(file = "pomp_cache/writeup_constant_beta_simulation.rds")
+dat_simulated %>% plot_simulation()
+```
+
 ```{r, echo = TRUE}
 seir_step = Csnippet("
   double Beta;
@@ -327,19 +348,6 @@ pf %>% logLik() %>% logmeanexp(se = TRUE)
 The simulations based on the starting values are able to capture general trend of the data. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
 
 ```{r, echo = FALSE, fig.width = 6, fig.height = 3}
-plot_simulation = function(sim_dat) {
-  sim_dat %>%
-    ggplot() +
-    theme_bw() +
-    geom_line(aes(Time, Cases, group = .id, 
-                  color = (.id == "data"), alpha = (.id == "data"), 
-                  linetype = (.id == "data"))) +
-    scale_color_manual(values = c("#18bc9c", "#c61919")) +
-    scale_alpha_manual(values = c(0.5, 1)) +
-    scale_linetype_manual(values = c(5, 1)) +
-    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
-} # plot_simulation()
-
 covidSEIR %>%
   simulate(params = params, nsim = 20, format = "data.frame", include.data = TRUE) %>% 
   plot_simulation()

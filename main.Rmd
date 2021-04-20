@@ -477,7 +477,7 @@ pairs(~loglik + mu_EI + mu_IR + eta + rho + tau, data = all,
 
 ### Simulation results  
 
-[TODO: add analysis]{.comment}
+The simulations with best set of parameters seem to much better than starting points. It catches the peaks and turning points and can explain the spread of virus under some certain circumstances.
 
 ```{r, fig.height = 3, fig.width = 6}
 optimal_params = read.csv(PARAMS_FILE) %>% slice(1) %>%

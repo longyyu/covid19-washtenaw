@@ -102,7 +102,7 @@ cases %>%
 
 ... So we decide to focus on the 2020 case reports, which leaves us with 306 data points. 
 
-The periodogram of our data shows two dominant frequencies. The first one, $\omega_1 = 0.00313$, corresponds to a period of 320 days. The second one is $\omega_2 = 0.14375$, which corresponds to a 7-day period. Next, I will use the period of 7 days to fit a SARMA model. 
+The periodogram of our data shows two dominant frequencies. The first one, $\omega_1 = 0.00313$, corresponds to a period of 320 days. The second one is $\omega_2 = 0.14375$, which corresponds to a 7-day period. 
 
 ```{r, fig.width = 7, fig.height = 3.5}
 cases = read.csv("cases_deaths_by_county_date.csv",
@@ -248,7 +248,7 @@ As of the [2019 census](https://fred.stlouisfed.org/series/MIWASH1POP), the resi
 
 According to the Centers for Disease Control and Prevention (CDC), the incubation period (the time from exposure to development of symptoms) of coronaviruses ranges from 2–14 days. [[2]](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission)
 So we expect $\mu_{EI}$ to fall into the range of $\frac{1}{2\text{ wk} = 14\text{ da}} = 0.071\text{ da}^{-1}$ to $\frac{1}{2\text{ day}} = 0.5\text{ da}^{-1}$.
-It can take at least two weeks for people to recover from COVID-19 infection. [[3]](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC). So we can expect $\mu_{IR}$ to fall into the range of $0.048-0.071\text{ da}^{-1}$. For the starting values, we will set both $mu_EI$ and $mu_IR$ to 0.1.
+It can take at least two weeks for people to recover from COVID-19 infection, but research suggests that most adults with mild to moderate COVID-19 are no longer able to infect others 10 days after coronavirus symptoms first appeared. [[3]](https://www.cdc.gov/coronavirus/2019-ncov/hcp/duration-isolation.html#assessment) So we can expect $\mu_{IR}$ to be around $0.1\text{ da}^{-1}$. We will set both $\mu_{EI}$ and $\mu_{IR}$ to 0.1 and fix them during the local and global search. 
 
 [TODO: Add some more analysis about eta and rho (and tau?)]{.comment}
 
@@ -257,12 +257,12 @@ Based on the above information, we can specify the starting points of the local 
 \[
 \begin{cases}
 b_1 = 3,\ b_2 = 0.5,\ b_3= 4,\ b_4 = 1.5,\ b_5 = 3.2 \\
-\mu_{EI} = 0.1 \\
-\mu_{IR} = 0.1 \\
+\mu_{EI} = 0.1 \text{  (fixed)}\\
+\mu_{IR} = 0.1 \text{  (fixed)}\\
 \rho = 0.5 \\
 \eta = 0.09 \\
 \tau = 0.001 \\
-N = 367,601
+N = 367,601 \text{  (fixed)}
 \end{cases}
 \]
 
@@ -271,14 +271,14 @@ pop_washtenaw = 367601
 params = c(b1 = 3, b2 = 0.5, b3 = 4, b4 = 1.5, b5 = 3.2, 
             mu_EI = 0.1, mu_IR = 0.1, rho = 0.5, eta = 0.09, 
             tau = 0.001, N = pop_washtenaw)
-fixed_params = params[c("N")]
+fixed_params = params[c("N", "mu_EI", "mu_IR")]
 params_rw.sd = rw.sd(b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
-                     mu_EI = 0.02, mu_IR = 0.02, rho = 0.02, 
-                     tau = 0.0001, eta = ivp(0.02))
+                     rho = 0.02, tau = 0.0001, eta = ivp(0.02))
 ```
 
+The likelihood estimate of the initial guess is -1351.26 with a Monte Carlo standard error of 25.50. 
 
-```{r}
+```{r, echo = TRUE}
 registerDoRNG(1235252)
 bake(file = "pomp_cache/writeup_lik_starting_values.rds", {
   foreach(i=1:10, .combine = c) %dopar% {
@@ -289,7 +289,7 @@ bake(file = "pomp_cache/writeup_lik_starting_values.rds", {
 pf %>% logLik() %>% logmeanexp(se = TRUE)
 ```
 
-The simulation based on the starting values has an outbreak but does not capture the data well. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
+The simulations based on the starting values are able to capture general trend of the data. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
 
 ```{r, echo = FALSE, fig.width = 6, fig.height = 3}
 plot_simulation = function(sim_dat) {
@@ -383,9 +383,9 @@ run_id = 2
 set.seed(2062379496)
 guesses = runif_design(
   lower = c(b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, 
-            mu_EI = 0, mu_IR = 0, rho = 0, eta = 0, tau = 0),
+            rho = 0, eta = 0, tau = 0),
   upper = c(b1 = 10, b2 = 10, b3 = 10, b4 = 10, b5 = 10, 
-            mu_EI = 1, mu_IR = 1, rho = 1, eta = 0.3, tau = 0.1),
+            rho = 1, eta = 0.3, tau = 0.1),
   nseq = NSTART
 )
 
@@ -418,12 +418,18 @@ bake(file = "pomp_cache/writeup_global_search.rds",{
   filter(is.finite(loglik)) -> results
 ```
 
+```{r}
+results %>% arrange(-loglik) %>% head %>%
+  knitr::kable(digits = 3, caption = "Global search results (in decreasing order of likelihood)")
+```
+
 [TODO: add analysis]{.comment}
 
 ```{r, fig.height = 7, fig.width = 7}
 all = read_csv(PARAMS_FILE) %>%
   filter(id <= 2) %>%
   filter(loglik > max(loglik) - 50) %>%
+  filter(mu_IR < 800) %>% # exclude outlier for a clearer view
   bind_rows(guesses) %>%
   mutate(type = if_else(is.na(loglik), "guess", "result")) %>%
   arrange(type)
@@ -461,7 +467,7 @@ guesses = read.csv(PARAMS_FILE) %>%
 
 rw.sd_rho_fixed = rw.sd(
   b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
-  mu_EI = 0.02, mu_IR = 0.02, rho = 0, tau = 0.0001, eta = ivp(0.02)
+  rho = 0, tau = 0.0001, eta = ivp(0.02)
 )
 
 mf1 = mifs_local[[1]]
@@ -486,7 +492,8 @@ bake(file = "pomp_cache/writeup_profile_rho.rds", {
 ```
 
 ```{r, echo = TRUE, fig.width = 5, fig.height = 3}
-results %>%
+all = read.csv(PARAMS_FILE) %>% filter(is.finite(loglik))
+all %>%
   filter(loglik > max(loglik) - 10, loglik.se < 2) %>%
   group_by(round(rho, 2)) %>%
   filter(rank(-loglik) < 3) %>%
@@ -496,10 +503,10 @@ results %>%
   geom_point() +
   geom_hline(
     color="red",
-    yintercept=max(results$loglik) - 0.5 * qchisq(df = 1, p = 0.95)
+    yintercept=max(all$loglik) - 0.5 * qchisq(df = 1, p = 0.95)
   )
 
-rho_ci = results %>%
+rho_ci = all %>%
   filter(is.finite(loglik)) %>%
   filter(loglik > max(loglik) - 0.5 * qchisq(df = 1, p = 0.95)) %>%
   summarize(min = min(rho), max = max(rho))
@@ -571,4 +578,4 @@ arma33_s11$loglik - sum(log_cases) # -1104.23
 
 [1] Michigan Disease Surveillance System (MDSS), ["Cases and Deaths by County by Date of Onset of Symptoms and Date of Death"](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html). Accessed April 7, 2021.  
 [2] Centers for Disease Control and Prevention (CDC), ["Clinical Questions about COVID-19: Questions and Answers - When is someone infectious?"](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission).  
-[3] Reuters, ["Young, healthy adults with mild COVID-19 also take weeks to recover: CDC"](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC)).  
+[3] CDC, ["Interim Guidance on Duration of Isolation and Precautions for Adults with COVID-19"](https://www.cdc.gov/coronavirus/2019-ncov/hcp/duration-isolation.html#assessment).  

@@ -681,3 +681,6 @@ Our model is set up under a series of ideal assumptions, which could not happen 
 [12] Mwalili, S., Kimathi, M., Ojiambo, V. et al. ["SEIR model for COVID-19 dynamics incorporating the environment and social distancing."](https://doi.org/10.1186/s13104-020-05192-1)
 [13] Projects from previous semester. ["2020"](https://ionides.github.io/531w20/final_project/),["2018"](https://ionides.github.io/531w18/final_project/)
 [14] Course lecture and notes. ["Source"](https://ionides.github.io/531w21/)
+
+## Contribution
+

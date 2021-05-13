@@ -19,7 +19,7 @@ The objective of this project is to conduct an analysis of Washtenaw County, Mic
 ## Summary of Results
 
 * The modified SEIR model with a time-varying contact rate is able to capture the multiple peaks of the reported COVID-19 cases and create satisfactory simulations. 
-* The mechanistic SEIR model outperforms the negative binomial benchmark, and is competitive with the ARMA benchmark. 
+* The SEIR model outperforms the negative binomial benchmark, and is competitive with the ARMA benchmark. 
 * The performance of the SEIR model might be improved if the strong weekly pattern in the data can be accounted for. 
   
 <img src="pomp_cache/readme_global_simulation_results.png" alt="SEIR model simulation results with MLE" width="600px">

@@ -51,30 +51,60 @@ seir_rinit = Csnippet("
   H = 0;
 ")
 
-dmeas = Csnippet("
+dmeas_binom = Csnippet("
   lik = dbinom(Cases, H, rho, give_log);
-  // lik = dpois(Cases, H * rho, give_log);
 ")
 
-rmeas = Csnippet("
+rmeas_binom = Csnippet("
   Cases = rbinom(H, rho);
-  // Cases = rpois(H *rho);
 ")
+
+dmeas_pois = Csnippet("
+  lik = dpois(Cases, H * rho, give_log);
+")
+
+rmeas_pois = Csnippet("
+  Cases = rpois(H *rho);
+")
+
+# discretized normal dist. truncated at zero
+dmeas_norm = Csnippet("
+  double tol = 1.0e-25;
+  double mean_cases = rho * H;
+  double sd_cases = sqrt(pow(tau*H,2) + mean_cases);
+  if(Cases > 0.0){
+    lik = pnorm(Cases+0.5,mean_cases,sd_cases,1,0)
+        - pnorm(Cases-0.5,mean_cases,sd_cases,1,0) + tol; 
+  } else{
+    lik = pnorm(Cases+0.5,mean_cases,sd_cases,1,0) + tol;
+  }
+  if (give_log) {lik = log(lik);}
+")
+
+rmeas_norm = Csnippet("
+  Cases = rnorm(rho*H, sqrt( pow(tau*H,2) + rho*H ) );
+  if (Cases > 0.0) {
+    Cases = nearbyint(Cases);
+  } else {
+    Cases = 0.0;
+  }
+")
+
 
 covidSEIR = cases %>% select(Time, Cases) %>%
   pomp(
     times = "Time", t0 = t0,
-    rprocess = euler(seir_step, delta.t = 1),
+    rprocess = euler(seir_step, delta.t = 1/366),
     rinit = seir_rinit,
-    rmeasure = rmeas,
-    dmeasure = dmeas,
+    rmeasure = rmeas_norm,
+    dmeasure = dmeas_norm,
     accumvars = "H",
     partrans=parameter_trans(
-      log = c("Beta", "mu_EI", "mu_IR"),
+      log = c("Beta", "mu_EI", "mu_IR", "tau"),
       logit = c("rho","eta")
     ),
     statenames=c("S", "E", "I", "H"),
-    paramnames=c("Beta", "mu_EI", "mu_IR", "eta", "rho", "N")
+    paramnames=c("Beta", "mu_EI", "mu_IR", "eta", "rho", "N", "tau")
   )
 
 
@@ -83,12 +113,14 @@ pop_washtenaw = 367000
 # # full sample
 # params = c(Beta = 70, mu_EI = 80, mu_IR = 14, rho = 0.12, eta = 0.5, N = pop_washtenaw)
 # subsample
-params = c(Beta = 70, mu_EI = 80, mu_IR = 10, rho = 0.12, eta = 0.5, N = pop_washtenaw)
+params = c(Beta = 70, mu_EI = 80, mu_IR = 10, rho = 0.12, eta = 0.5, tau = 0.001, N = pop_washtenaw)
 
 dat_simulated = covidSEIR %>%
   simulate(params = params, nsim = 10, format = "data.frame", include.data = TRUE)
 
+# save(dat_simulated, file = "pomp_cache/writeup_constant_beta_simulation.rds")
 dat_simulated %>% plot_simulation()
+
 
 # test measurement process with simulated data --------------------------------
 logliks = sapply(c("data", as.list(1:10)), function(group) {

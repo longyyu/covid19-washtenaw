@@ -116,10 +116,9 @@ pop_washtenaw = 367601
 params = c(b1 = 3, b2 = 0.5, b3 = 4, b4 = 1.5, b5 = 3.2, 
             mu_EI = 0.1, mu_IR = 0.1, rho = 0.5, eta = 0.09, 
             tau = 0.001, N = pop_washtenaw)
-fixed_params = params[c("N")]
+fixed_params = params[c("N", "mu_EI", "mu_IR")]
 params_rw.sd = rw.sd(b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
-                     mu_EI = 0.02, mu_IR = 0.02, rho = 0.02, 
-                     tau = 0.0001, eta = ivp(0.02))
+                     rho = 0.02, tau = 0.0001, eta = ivp(0.02))
 
 ## ---- fig.width = 6, fig.height = 3---------------------------------------------------
 if (FALSE) {
@@ -209,9 +208,9 @@ run_id = 2
 set.seed(2062379496)
 guesses = runif_design(
   lower = c(b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, 
-            mu_EI = 0, mu_IR = 0, rho = 0, eta = 0, tau = 0),
+            rho = 0, eta = 0, tau = 0),
   upper = c(b1 = 10, b2 = 10, b3 = 10, b4 = 10, b5 = 10, 
-            mu_EI = 1, mu_IR = 1, rho = 1, eta = 0.3, tau = 0.1),
+            rho = 1, eta = 0.3, tau = 0.1),
   nseq = NSTART
 )
 
@@ -278,7 +277,7 @@ guesses = read.csv(PARAMS_FILE) %>%
 
 rw.sd_rho_fixed = rw.sd(
   b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
-  mu_EI = 0.02, mu_IR = 0.02, rho = 0, tau = 0.0001, eta = ivp(0.02)
+  rho = 0, tau = 0.0001, eta = ivp(0.02)
 )
 
 mf1 = mifs_local[[1]]

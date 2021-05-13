@@ -149,7 +149,7 @@ registerDoRNG(625904618)
 We choose to use an SEIR model to simulate the COVID-19 epidemic as it is recognized that COVID-19 has a incubation period. Compared to the SIR model, the SEIR model adds a stage "E" which means infected individuals must pass a period of latency before becoming infectious. In practice, SEIR model is more adaptable than SIR model.
 
 
-<img src="seir_flowchart.png" alt="SEIR flowchart" width="550px" class="center">
+<img src="pomp_cache/seir_flowchart.png" alt="SEIR flowchart" width="550px" class="center">
 
 We suppose that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $\mu_{EI}$ is the rate at which individuals in E transition to I and $\mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
 
@@ -336,19 +336,6 @@ pf %>% logLik() %>% logmeanexp(se = TRUE)
 The simulations based on the starting values are able to capture general trend of the data, but still depart from the data at the major outbreak. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
 
 ```{r, echo = FALSE, fig.width = 6, fig.height = 3}
-plot_simulation = function(sim_dat) {
-  sim_dat %>%
-    ggplot() +
-    theme_bw() +
-    geom_line(aes(Time, Cases, group = .id, 
-                  color = (.id == "data"), alpha = (.id == "data"), 
-                  linetype = (.id == "data"))) +
-    scale_color_manual(values = c("#18bc9c", "#c61919")) +
-    scale_alpha_manual(values = c(0.5, 1)) +
-    scale_linetype_manual(values = c(5, 1)) +
-    guides(color = FALSE, linetype = FALSE, alpha = FALSE)
-} # plot_simulation()
-
 set.seed(132628339)
 covidSEIR %>%
   simulate(params = params, nsim = 20, format = "data.frame", include.data = TRUE) %>% 

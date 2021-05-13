@@ -7,11 +7,12 @@ output:
     toc: true
     toc_depth: 2
     theme: flatly
+    mathjax: "https://mathjax.rstudio.com/latest/MathJax.js?config=TeX-MML-AM_CHTML"
 ---
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(
-  echo = FALSE, #! TODO: switch to FALSE later
+  echo = FALSE,
   warning = FALSE,
 	message = FALSE,
 	include = TRUE,
@@ -42,14 +43,6 @@ pre { /* Scrollable code block */
 span.math{ /* Formulas */
   font-size: 14px;
 }
-.comment { /* Comments, to be deleted later */
-  margin: 30px;
-  padding-left: 10px;
-  color: Darkred;
-  border-left-style: solid;
-  /*border-color: #f2f2f2;*/
-  font-weight: 600;
-}
 table{
   margin-left: auto; /* center the tables */
   margin-right: auto; /* center the tables */
@@ -70,15 +63,13 @@ tr:nth-child(odd) td {
 ```
 
 
-[TODO: Maybe polish the title?]{.comment}
-
 ---
 
 ## Introduction
 
-Since late 2019, the pandemic caused by the novel coronavirus Covid-19 has taken over the world and become the main focus for any concerned citizen. Covid-19 is extremely infectious, thought to spread from person to person mainly through close contact between individuals. This virus is commonly transmitted through droplets, which humans produce whenever they cough, sneeze, or exhale. Most infected patients have mild symptoms while some suffer from severe illness and even death. According to the statistics from JHU [[1]](https://gisanddata.maps.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6), by far, the global cumulative cases are 141,819,360, including 3,027,353 death and 81,118,986 recovery. 
+Since late 2019, the pandemic caused by the novel coronavirus COVID-19 has taken over the world and become the main focus for any concerned citizen. COVID-19 is extremely infectious, thought to spread from person to person mainly through close contact between individuals. This virus is commonly transmitted through droplets, which humans produce whenever they cough, sneeze, or exhale. Most infected patients have mild symptoms while some suffer from severe illness and even death. According to the statistics from JHU [[1]](https://gisanddata.maps.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6), by far, the global cumulative cases are 141,819,360, including 3,027,353 death and 81,118,986 recovery. 
 
-The objective of this project is to conduct an analysis of Washtenaw County, Michigan reported Covid-19 cases with a Susceptible-Exposed-Infection-Recovered (SEIR) compartment model. Through model simulation and analysis, we want to gain understanding and stem the spread of Covid-19. We also set up a baseline ARMA model, using log-likelihood as the selection criterion, to see if our SEIR model can explain additional features of the data that the ARMA model is unable to capture.
+The objective of this project is to conduct an analysis of Washtenaw County, Michigan reported COVID-19 cases with a Susceptible-Exposed-Infection-Recovered (SEIR) compartment model. Through model simulation and analysis, we want to gain understanding and stem the spread of COVID-19. We also set up a baseline ARMA model, using log-likelihood as the selection criterion, to see if our SEIR model can explain additional features of the data that the ARMA model is unable to capture.
 
 ---
 
@@ -117,30 +108,11 @@ cases %>%
 ```
 
 
-Above, we see a plot of the daily Covid 19 cases throughout Michigan, as well as the plot of Washtenaw County cases. We see that while the Washtenaw plot has more variation over small time periods, the overall shape is similar between the two.
+Above, we see a plot of the daily COVID-19 cases throughout Michigan, as well as the plot of Washtenaw County cases. We see that while the Washtenaw plot has more variation over small time periods, the overall shape is similar between the two.
 
 The time series of our data is rather complex, with multiple peaks in 2020 and a large number of daily cases throughout late 2020 and early 2021. These peaks are caused by a variety of societal[[3]](https://www.cdc.gov/coronavirus/2019-ncov/prevent-getting-sick/social-distancing.html), political[[4]](https://www.michigan.gov/coronavirus/0,9753,7-406-98158---Y,00.html), and behavioral[[5]](https://www.hopkinsmedicine.org/health/conditions-and-diseases/coronavirus/first-and-second-waves-of-coronavirus) factors that are too complex to model individually, but it is clear that the rate at which Coronavirus spread throughout Washtenaw County was extremely variable in 2020.
 
-By late 2020, significant progress had been made in developing a vaccine for Covid 19, and by early 2021, vaccine distribution had begun in Michigan[[6]](https://www.uofmhealth.org/coronavirus/covid19-vaccine-phases-progress). While this is a great step forward in combating and eventually defeating Covid 19, it causes additional complications to the model, complications which we will not be studying. To fit the data into our SEIR model framework, we drop the 2021 data that could be affected by vaccinations, and focus on the 2020 case reports. This leaves us with 306 data points.
-
-The periodogram of our data shows two dominant frequencies. The first one, $\omega_1 = 0.00313$, corresponds to a period of 320 days. The second one is $\omega_2 = 0.14375$, which corresponds to a 7-day period. 
-
-```{r, fig.width = 7, fig.height = 3.5}
-cases = read.csv("cases_deaths_by_county_date.csv",
-                 colClasses = list(Date = "Date")) %>%
-  # select records of confirmed cases in Washtenaw County
-  filter(!is.na(Date), CASE_STATUS == "Confirmed", COUNTY == "Washtenaw") %>%
-  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative")) %>%
-  # select records in 2020 only
-  filter(Date < as.Date("2021-01-01"))
-
-log_cases = log(1 + cases$Cases)
-smoothed = spectrum(log_cases, spans=c(5, 5, 5), main="Periodogram (Smoothed)")
-idx_max = which.max(smoothed$spec)
-idx_max2 = which.max(smoothed$spec[41:length(smoothed$spec)]) + 40
-abline(v=smoothed$freq[idx_max], lty=2, col='red') # freq = 0.002469, 405 days
-abline(v=smoothed$freq[idx_max2], lty=2, col='red') # freq = 0.1432099, 1 week
-```
+By late 2020, significant progress had been made in developing a vaccine for COVID-19, and by early 2021, vaccine distribution had begun in Michigan[[6]](https://www.uofmhealth.org/coronavirus/covid19-vaccine-phases-progress). While this is a great step forward in combating and eventually defeating COVID-19, it causes additional complications to the model, complications which we will not be studying. To fit the data into our SEIR model framework, we drop the 2021 data that could be affected by vaccinations, and focus on the 2020 case reports. This leaves us with 306 data points.
 
 ---
 
@@ -179,13 +151,13 @@ We choose to use an SEIR model to simulate the COVID-19 epidemic as it is recogn
 
 <img src="seir_flowchart.png" alt="SEIR flowchart" width="550px" class="center">
 
-We suppose that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $mu_{EI}$ is the rate at which individuals in E transition to I and $mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
+We suppose that each arrow in figure has an associated rate. The four stages represent: S:susceptible population; E: incubation population; I: infectious population; R: recovered and removed population. $\beta$ is the contact rate and $\mu_{SI}=\beta I(t)$ denotes the rate at which individuals in S transition to E, $\mu_{EI}$ is the rate at which individuals in E transition to I and $\mu_{IR}$ denotes the transition rate from I to R. The probability of a case being reported is $\rho$.
 
 Then the number of people in each compartment can be computed by
 \[
 \begin{split}
 S(t)&=S(0)-N_{SE}(t)\\
-E(t)&=E(0)+N_{EI}(t)-N_{EI}(t)\\
+E(t)&=E(0)+N_{SE}(t)-N_{EI}(t)\\
 I(t)&=I(0)+N_{EI}(t)-N_{IR}(t)\\
 R(t)&=R(0)+N_{IR}(t)
 \end{split}
@@ -200,11 +172,11 @@ where
 \end{split}
 \]
 
-As for the measurement model, we use discretized normal distribution truncated at 0, with environmental and Poisson-scale contributions to the variance. 
+As for the measurement model, we use a discretized normal distribution truncated at 0: 
 
 $$\mathrm{Cases}=\max\{\mathrm{round}(C_n),0\},\ \ \ C_n\sim \mathrm{N}(\rho H_n,(\tau H_n)^2+\rho H_n)$$
 
-where $H$ tracks the number of individuals transition from I to R. 
+where $H$ tracks the number of individuals transferred from I to R. 
 
 ```{r}
 cases = read.csv("cases_deaths_by_county_date.csv",
@@ -232,7 +204,7 @@ Therefore, we let $\beta$ vary from time to time, and set a step function, just 
 
 \[
   \beta = \begin{cases}
-    b_1, & \text{01/03 - 21/03/2020}.\\
+    b_1, & \text{01/03 - 23/03/2020}.\\
     b_2, & \text{24/03 - 08/06/2020}. \\
     b_3, & \text{09/06 - 28/06/2020}. \\
     b_4, & \text{29/06 - 11/09/2020}. \\
@@ -601,8 +573,6 @@ The 95% confidence interval for $\rho$ is [40.97%, 48.01%], which is a reasonabl
 
 To further check the compatibility of our model specification with the data, we compute some log likelihood benchmarks using non-mechanistic approaches. 
 
-### Negative Binomial
-
 We first pick a negative binomial model which finds independent, identically distributed interpretation for the data. The log likelihood for this model is -1,464.861, which is beaten by our initial guess before running the global search. 
 
 ```{r, echo = TRUE}
@@ -613,12 +583,18 @@ nb_mle = optim(c(0, -5), nb_lik)
 -nb_mle$value
 ```
 
-### ARMA
+Then, we fit an auto-regressive moving-average (ARMA) model using $\log(y_n + 1)$. Unlike the negative binomial model, an ARMA model takes dependence relationships into account.  The periodogram of our data shows two dominant frequencies. The first one, $\omega_1 = 0.00313$, corresponds to a period of 320 days. The second one is $\omega_2 = 0.14375$, which corresponds to a 7-day period, which motivates the use of a seasonal ARMA (SARMA) model. A simple search over the parameters shows that the best fit is given by a $SARMA(3,3)\times(1,1)_7$ model with an AIC of 231.698, which we will use for the likelihood benchmark analysis.
 
-Then, we fit an auto-regressive moving-average (ARMA) model using $\log(y_n + 1)$. Unlike the negative binomial model, an ARMA model takes dependence relationships into account. 
-As mentioned in the exploratory analysis section, one of the dominant frequency of the data correspond to a 7-day period, which is why we will use the period of 7 days to fit a seasonal ARMA (SARMA) model. 
+```{r, fig.width = 7, fig.height = 3.5}
+log_cases = log(1 + cases$Cases)
+smoothed = spectrum(log_cases, spans=c(5, 5, 5), main="Periodogram (Smoothed)")
+idx_max = which.max(smoothed$spec)
+idx_max2 = which.max(smoothed$spec[41:length(smoothed$spec)]) + 40
+abline(v=smoothed$freq[idx_max], lty=2, col='red') # freq = 0.002469, 405 days
+abline(v=smoothed$freq[idx_max2], lty=2, col='red') # freq = 0.1432099, 1 week
+```
 
-```{r, echo = FALSE}
+```{r, eval = FALSE, echo = FALSE}
 generate_aic_table=function(data, P, Q, D=0, ...){
 	table=matrix(NA, (P+1), (Q+1))
 	for(p in 0:P) {
@@ -636,8 +612,6 @@ generate_aic_table=function(data, P, Q, D=0, ...){
   table
 }
 ```
-
-A simple search over the parameters shows that the best fit is given by a $SARMA(3,3)\times(1,1)_7$ model with an AIC of 231.698. We will use this model for the likelihood benchmark analysis.
 
 ```{r, eval = FALSE, echo = FALSE}
 table_s00 = generate_aic_table(data = log_cases, P = 5, Q = 5) # 268.4441
@@ -661,26 +635,33 @@ This model obtains a log likelihood of -1,104.23, which is in fact higher than o
 
 ## Conclusion and Discussion
 
-In this project, we carry out a modified SEIR model for Washternaw County covid data. Simulations on parameters determined by local and global search reveals that the SEIR model can fit the data pretty well. The logliklihood of optimal SEIR model is much better than non-mechanistic model, which suggests our model does have practical significance. Step function of beta can also help to explain the multiply peaks. By doing analysing, we can see that the contact rate does play a important role in the spread of virus. Frequent meeting has a negative effect on the epidemic control, thus no wonder many people were punished because of gathering.
+In this project, we carry out a modified SEIR model for Washternaw County COVID-19 data, employing a step function to represent the contact rate $\beta$. The global search results and simulations based on the MLE show that our model can fit the data pretty well, and  the time-varying $\beta$ helps to explain the multiply peaks. This also shows that the contact rate plays an important role in the spread of virus. 
 
-Our model is set up under a series of ideal assumptions, which could not happen in real world. There are a number of factors that could affect the spread of Covid-19 and the number of cases. For example, the incubation and recovery period vary from people to people; reovery people could be reinfected; birth rate, death rate and movement of population cannot be 0. Under the action of government, people who are suspected to be infected will be separated, which could induce a SEQIR model[[11]](https://doi.org/10.1101/2020.08.18.20177709). If considering the environment and the spread the pathogens, we can introduce another SEIR-P model[[12]](https://doi.org/10.1186/s13104-020-05192-1). For future study, we could loose the assumptions and add more parameters to set up a more complex model. The models may rarely tell the whole actual situation, but we can alway learn something when fitting a model.
+Our model is set up under a series of ideal assumptions, which could not happen in the real world. There are a number of factors that could affect the spread of COVID-19 and the number of cases that we did not take into consideration. For example, the incubation and recovery period varies from people to people; recovered people could be reinfected; birth rate, death rate and movement of population cannot be 0. Under the action of government, people who are suspected to be infected will be quarantined, which could induce a SEQIR model[[11]](https://doi.org/10.1101/2020.08.18.20177709). If we consider the environment and the spread the pathogens, we can introduce another SEIR-P model[[12]](https://doi.org/10.1186/s13104-020-05192-1). For future study, we could loose some of the assumptions and add more parameters to set up a more complex model. The models may never be able to capture all the complexities, but we can always learn something from trying to do so.
 
 ## References
 
-[1] JHU COVID-19 Dashboard, ["COVID-19 Dashboard by the Center for Systems Science and Engineering (CSSE) at Johns Hopkins University (JHU)"](https://gisanddata.maps.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6)
+[1] JHU COVID-19 Dashboard, ["COVID-19 Dashboard by the Center for Systems Science and Engineering (CSSE) at Johns Hopkins University (JHU)"](https://gisanddata.maps.arcgis.com/apps/opsdashboard/index.html#/bda7594740fd40299423467b48e9ecf6)  
 [2] Michigan Disease Surveillance System (MDSS), ["Cases and Deaths by County by Date of Onset of Symptoms and Date of Death"](https://www.michigan.gov/coronavirus/0,9753,7-406-98163_98173---,00.html). Accessed April 7, 2021.  
-[3] CDC Social Distancing, ["Social Distancing"](https://www.cdc.gov/coronavirus/2019-ncov/prevent-getting-sick/social-distancing.html).
-[4] Michigan Government ["Press Releases - Coronavirus News"](https://www.michigan.gov/coronavirus/0,9753,7-406-98158---Y,00.html)
-[5] Johns Hopkins Medicine, Lisa Lockerd Maragakis ["Coronavirus Second Wave? Why Cases Increase"](https://www.hopkinsmedicine.org/health/conditions-and-diseases/coronavirus/first-and-second-waves-of-coronavirus).
-[6] Michigan Medicine, University of Michigan, ["COVID-19 Vaccine Phases and Progress"](https://www.uofmhealth.org/coronavirus/covid19-vaccine-phases-progress).
-[7] Washtenaw County Health Department, ["Washtenaw County Health Department Reports First COVID-19 Cases"](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases)
-[8] Economic Eesearch, ["Resident Population in Washtenaw County, MI"](https://fred.stlouisfed.org/series/MIWASH1POP)
+[3] CDC Social Distancing, ["Social Distancing"](https://www.cdc.gov/coronavirus/2019-ncov/prevent-getting-sick/social-distancing.html).  
+[4] Michigan Government ["Press Releases - Coronavirus News"](https://www.michigan.gov/coronavirus/0,9753,7-406-98158---Y,00.html)  
+[5] Johns Hopkins Medicine, Lisa Lockerd Maragakis ["Coronavirus Second Wave? Why Cases Increase"](https://www.hopkinsmedicine.org/health/conditions-and-diseases/coronavirus/first-and-second-waves-of-coronavirus).  
+[6] Michigan Medicine, University of Michigan, ["COVID-19 Vaccine Phases and Progress"](https://www.uofmhealth.org/coronavirus/covid19-vaccine-phases-progress).  
+[7] Washtenaw County Health Department, ["Washtenaw County Health Department Reports First COVID-19 Cases"](https://www.washtenaw.org/DocumentCenter/View/15635/Washtenaw-County-Health-Department-Reports-First-COVID-19-Cases)  
+[8] Economic Eesearch, ["Resident Population in Washtenaw County, MI"](https://fred.stlouisfed.org/series/MIWASH1POP)  
 [9] Centers for Disease Control and Prevention (CDC), ["Clinical Questions about COVID-19: Questions and Answers - When is someone infectious?"](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission).  
 [10] CDC, ["Interim Guidance on Duration of Isolation and Precautions for Adults with COVID-19"](https://www.cdc.gov/coronavirus/2019-ncov/hcp/duration-isolation.html#assessment).  
-[11] Kazuo Maki, ["A delayed SEIQR epidemic model of COVID-19 in Tokyo area"](https://doi.org/10.1101/2020.08.18.20177709)
-[12] Mwalili, S., Kimathi, M., Ojiambo, V. et al. ["SEIR model for COVID-19 dynamics incorporating the environment and social distancing."](https://doi.org/10.1186/s13104-020-05192-1)
-[13] Projects from previous semester. ["2020"](https://ionides.github.io/531w20/final_project/),["2018"](https://ionides.github.io/531w18/final_project/)
-[14] Course lecture and notes. ["Source"](https://ionides.github.io/531w21/)
+[11] Kazuo Maki, ["A delayed SEIQR epidemic model of COVID-19 in Tokyo area"](https://doi.org/10.1101/2020.08.18.20177709)  
+[12] Mwalili, S., Kimathi, M., Ojiambo, V. et al. ["SEIR model for COVID-19 dynamics incorporating the environment and social distancing."](https://doi.org/10.1186/s13104-020-05192-1)  
+[13] Projects from previous semester. ["2020"](https://ionides.github.io/531w20/final_project/),["2018"](https://ionides.github.io/531w18/final_project/)  
+[14] Course lecture and notes. ["Source"](https://ionides.github.io/531w21/)  
 
 ## Contribution
 
+In terms of report writing, the work was split as follows:  
+
+- **Sean**: Introduction; Exploratory data analysis  
+- **Cheng**: Model specification and assumptions; Conclusions and Discussions  
+- **Yanyu**: Interpretation of the results; Likelihood benchmark
+
+In terms of modeling and computation, we worked independently to try different model specifications and run local and global search under those settings. We met up during discussion to exchange ideas about improving model performance. 

@@ -12,7 +12,6 @@ NSIM = switch(run_level, 50, 100, 500) # number of simulations
 
 PARAMS_FILE = sprintf("seir_params_runlevel=%i.csv", run_level)
 
-
 suppressPackageStartupMessages({
   library(foreach)
   library(doParallel)
@@ -29,21 +28,30 @@ registerDoRNG(625904618)
 
 ### Model specification
 
-Our observation are daily reported cases from Mar 1, 2020 to Apr 7, 2021. So we set $t_n = 2020 + (60 + n)/366, n \in \{0, 1, 2, \ldots \}$. 
-
 ```{r}
 cases = read.csv("cases_deaths_by_county_date.csv",
                  colClasses = list(Date = "Date")) %>%
+  # select records of confirmed cases in Washtenaw County
   filter(!is.na(Date), CASE_STATUS == "Confirmed", COUNTY == "Washtenaw") %>%
-  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative"))
-cases = cases %>%
-  # transform Date to numeric form
-  mutate(Time = 2020 + as.numeric(Date - as.Date("2020-01-01"))/366)
-t0 = min(cases$Time) # 2020.164, i.e. 2020-03-01
+  select(-Updated, -CASE_STATUS, -COUNTY, -ends_with("Cumulative")) %>%
+  # select records in 2020 only
+  filter(Date < as.Date("2021-01-01")) %>%
+  # transform `Date` to numeric form
+  mutate(Time = 1:n())
+covid_t0 = min(cases$Time)
 ```
+
+[TODO: Add SEIR model settings, justifications for the beta step function, and justification for the initial state values (E and I).]{.comment}
 
 ```{r}
 seir_step = Csnippet("
+  double Beta;
+  if(intervention == 1) Beta = b1;
+  else if(intervention == 2) Beta = b2;
+  else if(intervention == 3) Beta = b3;
+  else if(intervention == 4) Beta = b4;
+  else Beta = b5;
+  
   double dN_SE = rbinom(S, 1 - exp(-Beta * I / N * dt));
   double dN_EI = rbinom(E, 1 - exp(-mu_EI * dt));
   double dN_IR = rbinom(I, 1 - exp(-mu_IR * dt));
@@ -55,64 +63,105 @@ seir_step = Csnippet("
 
 seir_rinit = Csnippet("
   S = nearbyint(eta * N);
-  E = 1;
-  I = 0;
+  E = 100;
+  I = 200;
   H = 0;
 ")
 
 dmeas <- Csnippet("
-  lik = dbinom(Cases, H, rho, give_log);
+  double tol=1.0e-25;
+  double mean =rho*H;
+  double sd =sqrt(pow(tau*H,2)+rho*H);
+  if(Cases>0.0){
+    lik=pnorm(Cases+0.5,mean,sd,1,0)-pnorm(Cases-0.5,mean,sd,1,0)+tol;
+  } else {
+    lik=pnorm(Cases+0.5,mean,sd,1,0)+tol;
+  }
+  if(give_log) lik=log(lik);
 ")
 
 rmeas <- Csnippet("
-  Cases = rbinom(H, rho);
+  Cases = rnorm(rho*H, sqrt(pow(tau*H,2)+rho*H));
+  if(Cases>0.0){
+    Cases=nearbyint(Cases);
+  } else {
+    Cases=0.0;
+  }
 ")
+
+seir_covar <- covariate_table(
+  t = cases$Time,
+  intervention = c(rep(1, 23),
+                   rep(2, 77),
+                   rep(3, 20),
+                   rep(4, 75),
+                   rep(5, 111)),
+  times = "t")
 
 covidSEIR = cases %>% select(Time, Cases) %>%
   pomp(
-    times = "Time", t0 = t0,
-    rprocess = euler(seir_step, delta.t = 1),
+    times = "Time", t0 = covid_t0,
+    rprocess = euler(seir_step, delta.t = 1), # delta.t set to 1 day
     rinit = seir_rinit,
     rmeasure = rmeas,
     dmeasure = dmeas,
     accumvars = "H",
     partrans=parameter_trans(
-      log = c("Beta", "mu_EI", "mu_IR"),
-      logit = c("rho","eta")
+      log = c("mu_EI", "mu_IR", "tau", "b1", "b2", "b3", "b4", "b5"),
+      logit = c("rho", "eta")
     ),
-    statenames=c("S", "E", "I", "H"),
-    paramnames=c("Beta", "mu_EI", "mu_IR", "eta", "rho", "N")
+    statenames = c("S", "E", "I", "H"),
+    paramnames = c("b1", "b2", "b3", "b4", "b5", "mu_EI", "mu_IR", 
+                   "eta", "rho", "N", "tau"),
+    covar = seir_covar
   )
 ```
 
-### Search for starting points  
-
-[Update this section]{.comment}
+### Choosing starting points
 
 As of the [2019 census](https://fred.stlouisfed.org/series/MIWASH1POP), the resident population in Washtenaw County was 367,601. We will use this value as an approximation for the population in March 2020. In the following analysis, we will fix the population $N$ to 367,601.  
 
 According to the Centers for Disease Control and Prevention (CDC), the incubation period (the time from exposure to development of symptoms) of coronaviruses ranges from 2–14 days. [[2]](https://www.cdc.gov/coronavirus/2019-ncov/hcp/faq.html#Transmission)
-So we expect $\mu_{EI}$ to fall into the range of $\frac{1}{2\text{ wk} = 1/26\text{ yr}} = 26\text{ yr}^{-1}$ to $\frac{1}{2\text{ day} = 1/183\text{ yr}} = 183\text{ yr}^{-1}$.
-It can take at least two weeks for people to recover from COVID-19 infection. [[3]](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC). So we can expect $\mu_{IR}$ to fall into the range of $13-26\text{ yr}^{-1}$.
+So we expect $\mu_{EI}$ to fall into the range of $\frac{1}{2\text{ wk} = 14\text{ da}} = 0.071\text{ da}^{-1}$ to $\frac{1}{2\text{ day}} = 0.5\text{ da}^{-1}$.
+It can take at least two weeks for people to recover from COVID-19 infection. [[3]](https://www.reuters.com/article/us-health-coronavirus-recovery-idUSKCN24P2DC). So we can expect $\mu_{IR}$ to fall into the range of $0.048-0.071\text{ da}^{-1}$. For the starting values, we will set both $mu_EI$ and $mu_IR$ to 0.1.
 
-Based on the above information, we set the starting points of the search to: 
+[TODO: Add some more analysis about eta and rho (and tau?)]{.comment}
+
+Based on the above information, we can specify the starting points of the local search: 
+
 \[
 \begin{cases}
-\beta = 80 \\
-\mu_{EI} = 80 \\
-\mu_{IR} = 26 \\
+b_1 = 3,\ b_2 = 0.5,\ b_3= 4,\ b_4 = 1.5,\ b_5 = 3.2 \\
+\mu_{EI} = 0.1 \\
+\mu_{IR} = 0.1 \\
 \rho = 0.5 \\
-\eta = 0.5
+\eta = 0.09 \\
+\tau = 0.001 \\
+N = 367,601
 \end{cases}
 \]
 
 ```{r}
-pop_washtenaw = 367000
-params = c(Beta = 80, mu_EI = 80, mu_IR = 26, rho = 0.5, eta = 0.5, N = pop_washtenaw)
+pop_washtenaw = 367601
+params = c(b1 = 3, b2 = 0.5, b3 = 4, b4 = 1.5, b5 = 3.2, 
+            mu_EI = 0.1, mu_IR = 0.1, rho = 0.5, eta = 0.09, 
+            tau = 0.001, N = pop_washtenaw)
 fixed_params = params[c("N")]
-params_rw.sd = rw.sd(Beta = 0.02, mu_EI = 0.02, mu_IR = 0.02,
-                     rho = 0.02, eta = ivp(0.04)) 
-pairs_formula = ~loglik + Beta + mu_EI + mu_IR + eta + rho
+params_rw.sd = rw.sd(b1 = 0.02, b2 = 0.02, b3 = 0.02, b4 = 0.02, b5 = 0.02, 
+                     mu_EI = 0.02, mu_IR = 0.02, rho = 0.02, 
+                     tau = 0.0001, eta = ivp(0.02))
+```
+
+
+```{r}
+registerDoRNG(1235252)
+bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "lik_starting_values.rds"), {
+  foreach(i=1:10, .combine = c) %dopar% {
+    library(pomp)
+    covidSEIR %>% pfilter(params=params,  Np=500)
+  }
+}) -> pf
+pf %>% logLik() %>% logmeanexp(se = TRUE)
 ```
 
 The simulation based on the starting values has an outbreak but does not capture the data well. Next, we will use iterative filtering to search for the maximum likelihood estimates (MLE). 
@@ -152,7 +201,7 @@ bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "local_search.rds"
         params = params,
         Np = NP, Nmif = NMIF_S,
         cooling.fraction.50 = 0.5,
-        rw.sd = rw.sd(Beta = 0.02, rho = 0.02, eta = ivp(0.02))
+        rw.sd = params_rw.sd
       )
   } -> mifs_local
   attr(mifs_local,"ncpu") <- getDoParWorkers()
@@ -160,12 +209,11 @@ bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "local_search.rds"
 }) -> mifs_local
 t_loc <- attr(mifs_local,"system.time")
 ncpu_loc <- attr(mifs_local,"ncpu")
-cat(sprintf("Local search (IF2) finished in %4.3f seconds\n", t_loc["elapsed"]))
+cat(sprintf("Local search (iterative filtering) finished in %4.3f seconds\n", t_loc["elapsed"]))
 
 mifs_local %>%
   traces() %>%
   melt() %>%
-  filter(!variable %in% names(fixed_params)) %>%
   ggplot(aes(x = iteration, y = value, group = L1, color = factor(L1))) +
   theme_bw() +
   geom_line() +
@@ -182,7 +230,8 @@ bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "lik_local.rds"),{
       library(tidyverse)
       library(pomp)
     })
-    ll = replicate(NREPS_EVAL, logLik(pfilter(mf, Np = NP))) %>% logmeanexp(se = TRUE)
+    ll = replicate(NREPS_EVAL, logLik(pfilter(mf, Np = NP))) %>% 
+         logmeanexp(se = TRUE)
     coef(mf) %>% bind_rows() %>% bind_cols(loglik = ll[1], loglik.se = ll[2])
   } -> results
   attr(results,"ncpu") <- getDoParWorkers()
@@ -190,12 +239,16 @@ bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "lik_local.rds"),{
 }) -> results
 t_local <- attr(results,"system.time")
 ncpu_local <- attr(results,"ncpu")
-cat(sprintf("Local search (likelihood est.) finished in %4.3f seconds\n", t_local["elapsed"]))
+cat(sprintf("Local search (likelihood estimation) finished in %4.3f seconds\n", t_local["elapsed"]))
+```
 
+```{r}
+results %>% arrange(-loglik) %>% head %>% knitr::kable(digits = 3)
 ```
 
 ```{r, fig.height = 7, fig.width = 7}
-pairs(pairs_formula, data = results, pch = 16)
+pairs(~loglik + b1 + b2 + b3 + b4 + b5, data = results, pch = 16)
+pairs(~loglik + mu_EI + mu_IR + eta + rho + tau, data = results, pch = 16)
 ```
 
 ### Global Search
@@ -206,12 +259,14 @@ run_id = 2
 # create a box of starting values (for parameters)
 set.seed(2062379496)
 guesses = runif_design(
-  lower = c(Beta = 1e04, mu_EI = 0, mu_IR = 0 , rho = 0.05, eta = 0),
-  upper=c(Beta = 1e06, mu_EI = 10, mu_IR = 10, rho = 0.3, eta = 1),
+  lower = c(b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, 
+            mu_EI = 0, mu_IR = 0, rho = 0, eta = 0, tau = 0),
+  upper = c(b1 = 10, b2 = 10, b3 = 10, b4 = 10, b5 = 10, 
+            mu_EI = 1, mu_IR = 1, rho = 1, eta = 0.3, tau = 0.1),
   nseq = NSTART
 )
 
-mf1 <- mifs_local[[1]] # take the output of previous IF process (local search)
+mf1 = mifs_local[[1]] # take the output of previous IF process (local search)
 
 bake(file = sprintf("%srunlevel=%i_%s", CACHE_DIR, run_level, "global_search.rds"),{
   registerDoRNG(1270401374)
@@ -243,15 +298,18 @@ ncpu_global <- attr(results,"ncpu")
 cat(sprintf("Global search finished in %4.3f seconds\n", t_global["elapsed"]))
 ```
 
+
 ```{r, fig.height = 7, fig.width = 7}
 all = read_csv(PARAMS_FILE) %>%
   filter(id <= 2) %>%
-  # filter(loglik > max(loglik) - 50) %>%
+  filter(loglik > max(loglik) - 50) %>%
   bind_rows(guesses) %>%
   mutate(type = if_else(is.na(loglik), "guess", "result")) %>%
   arrange(type)
 
-pairs(pairs_formula, data = all,
+pairs(~loglik + b1 + b2 + b3 + b4 + b5, data = all,
+      col = ifelse(all$type == "guess", grey(0.5), "red"), pch = 16)
+pairs(~loglik + mu_EI + mu_IR + eta + rho + tau, data = all,
       col = ifelse(all$type == "guess", grey(0.5), "red"), pch = 16)
 ```
 
@@ -262,13 +320,7 @@ optimal_params = read.csv(PARAMS_FILE) %>% slice(1) %>%
   select(-starts_with("loglik"), -id) %>% unlist()
 covidSEIR %>%
   simulate(
-    params = optimal_params, nsim = 20, format = "data.frame", include.data = TRUE
+    params = optimal_params, nsim = 10, format = "data.frame", include.data = TRUE
   ) %>%
   plot_simulation()
 ```
-
-```{r, echo = FALSE}
-stopCluster(cl) # shut the cluster down
-```
-
-[The current model setting does not fit the data well. It might help improve the model performance to (1) subsample the data to focus on the outbreak (August 2020 - March 2021), (2) aggregate the daily data to weekly level, or (3) change the model settings - consider a time-varying contact rate, or use a different compartmental model. ]{.comment}

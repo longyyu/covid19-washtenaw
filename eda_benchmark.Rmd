@@ -40,10 +40,9 @@ cases %>%
 ```
 
 
-[We can focus on the Washtenaw County, or compare the parameter estimates of the Washtenaw County and the other counties. ]{.comment}
+[TODO: Justify dropping the 2021 observations]{.comment}
 
-
-[Do we want to pick a subperiod to analyze, or do we want to use the full sample? It seems like we can at least leave out the observations in Apr 2021 (points to the right of the red dashed line), as the records might be incomplete. ]{.comment}
+... So we decide to focus on the 2020 case reports, which leaves us with 306 data points. 
 
 ---
 
